@@ -35,3 +35,5 @@ in top level folder, if use pybind:
 pip3 install target_folder/  
 
 python3 patch_linemod_test.py
+
+[Chinese blog](https://zhuanlan.zhihu.com/p/45538349)
