@@ -36,4 +36,11 @@ pip3 install target_folder/
 
 python3 patch_linemod_test.py
 
+### how to elevate
+
+patch_linemod_test.py, 57-66, select dataset & mode, train & test  
+tools/eval_calc_errors.py, 19-27, select dataset, run  
+tools/eval_loc.py, 180-186, select dataset, run  
+Results are saved to top_level_folder/eval  
+
 [Chinese blog](https://zhuanlan.zhihu.com/p/45538349)

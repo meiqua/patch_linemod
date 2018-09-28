@@ -181,9 +181,9 @@ def main():
     # dataset = 'tless'
     # dataset = 'tudlight'
     # dataset = 'rutgers'
-    # dataset = 'tejani'
-    dataset = 'doumanoglou'
-    # dataset = 'toyotalight
+    dataset = 'tejani'
+    # dataset = 'doumanoglou'
+    # dataset = 'toyotalight'
 
     error_bpath = pjoin(top_level_path, 'eval')
     error_paths = [

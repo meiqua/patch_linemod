@@ -58,8 +58,8 @@ def nms(dets, thresh):
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
-# dataset = 'tejani'
-dataset = 'doumanoglou'
+dataset = 'tejani'
+# dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 # mode = 'render_train'
