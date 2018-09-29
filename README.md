@@ -36,7 +36,7 @@ pip3 install target_folder/
 
 python3 patch_linemod_test.py
 
-### how to elevate
+### how to evaluate
 
 patch_linemod_test.py, 57-66, select dataset & mode, train & test  
 tools/eval_calc_errors.py, 19-27, select dataset, run  
