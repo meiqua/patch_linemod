@@ -54,11 +54,11 @@ def nms(dets, thresh):
 
     return keep
 
-# dataset = 'hinterstoisser'
+dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
-dataset = 'tejani'
+# dataset = 'tejani'
 # dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
@@ -790,7 +790,7 @@ if mode == 'test':
 
                 idx = []
                 if len(dets) > 0:
-                    idx = nms(np.array(dets), 0.4)
+                    idx = nms(np.array(dets), 0.5)
 
                 print('candidates size after refine & nms: {}\n'.format(len(idx)))
 
@@ -904,7 +904,7 @@ if mode == 'test':
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
 
-                    cv2.waitKey(100)
+                    cv2.waitKey(10)
 
     fbo.deactivate()
     window.close()

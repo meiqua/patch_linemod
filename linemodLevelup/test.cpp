@@ -9,7 +9,7 @@
 using namespace std;
 using namespace cv;
 
-static std::string prefix = "/home/meiqua/6DPose/linemodLevelup/test/case1/";
+static std::string prefix = "/home/meiqua/patch_linemod/linemodLevelup/test/case1/";
 // for test
 std::string type2str(int type) {
   std::string r;
@@ -280,6 +280,8 @@ void view_angle(){
 }
 
 int main(){
-    icp_with_depth_check_test();
+//    icp_with_depth_check_test();
+    detect_test();
+
     return 0;
 }

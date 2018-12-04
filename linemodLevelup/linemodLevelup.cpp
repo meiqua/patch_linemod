@@ -1980,7 +1980,11 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
                           const std::string &class_id,
                           const std::vector<TemplatePyramid> &template_pyramids) const
 {
-#pragma omp parallel for
+    constexpr int min_active_part = 3; // better for small objs?
+#pragma omp declare reduction \
+    (omp_insert: std::vector<Match>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
+
+#pragma omp parallel for reduction(omp_insert:matches)
     for (size_t template_id = 0; template_id < template_pyramids.size(); ++template_id)
     {
         const TemplatePyramid &tp = template_pyramids[template_id];
@@ -2037,7 +2041,9 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
                     for (int c = 0; c < active_count_1mod.cols; ++c)
                     {
                         float score = 100.0f/4*raw_score[c]/active_feats[c];
-                        if (active_parts[c] > int(total_counts[i]*active_ratio) && score>threshold)
+                        if (active_parts[c] > int(total_counts[i]*active_ratio - 0.001f) && active_parts[c] > 0 &&
+                                (active_parts[c] >= min_active_part || active_parts[c] >= total_counts[i])
+                                && score>threshold)
                         {
                             if(score < nms_row[c])
                                 nms_row[c] = score;
@@ -2169,7 +2175,8 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
                         float* score_2mod_row = score_2mod[i].ptr<float>(r);
                         for (int c = 0; c < local_size; ++c)
                         {
-                            if (active_count2_row[c]>(total_counts2[i]*active_ratio))
+                            if (active_count2_row[c]> int(total_counts2[i]*active_ratio - 0.001f) && active_count2_row[c] > 0
+                                    && (active_count2_row[c] >= min_active_part || active_count2_row[c] >= total_counts2[i]))
                             {
                                 score_2mod_row[c] = 100.0f/4*
                                         active_score2_row[c]
@@ -2211,10 +2218,7 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
             candidates.erase(new_end, candidates.end());
         }
 
-#pragma omp critical
-        {
-            matches.insert(matches.end(), candidates.begin(), candidates.end());
-        }
+        matches.insert(matches.end(), candidates.begin(), candidates.end());
     }
 }
 
@@ -2557,8 +2561,8 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
     Eigen::Matrix4f init_base = Eigen::Map<Eigen::Matrix4f>(reinterpret_cast<float*>(init_base_cv.data));
 
     cv::Mat modelMask = modelDepth > 0;
-//    for(int i=0; i<3; i++)
-//    cv::dilate(modelMask, modelMask, cv::Mat());
+
+    for(int i=0; i<3; i++) cv::dilate(modelMask, modelMask, cv::Mat());
 
     cv::Mat non0p;
     findNonZero(modelMask, non0p);
@@ -2622,7 +2626,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 
     init_guess.block(0, 3, 3, 1) = center_scene - center_model;
 
-    double threshold = 0.01;
+    double threshold = 0.007;
 
     const bool debug_ = false;
     if(debug_){
