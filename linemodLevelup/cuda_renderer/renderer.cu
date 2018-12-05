@@ -90,7 +90,7 @@ __device__ float calculateSignedArea(float* A, float* B, float* C){
     return 0.5f*((C[0]-A[0])*(B[1]-A[1]) - (B[0]-A[0])*(C[1]-A[1]));
 }
 
-__device__ Model::float3 barycentric(float* A, float* B, float* C, int* P) {
+__device__ Model::float3 barycentric(float* A, float* B, float* C, float* P) {
 
     float float_P[2] = {float(P[0]), float(P[1])};
 
@@ -115,9 +115,9 @@ __device__ void rasterization(const Model::Triangle dev_tri, Model::float3 last_
     float pts2[3][2];
 
     // viewport transform(0, 0, width, height)
-    pts2[0][0] = dev_tri.v0.x/last_row.x*width/2.0f+width/2.0f; pts2[0][1] = dev_tri.v0.y/last_row.y*height/2.0f+height/2.0f;
-    pts2[1][0] = dev_tri.v1.x/last_row.x*width/2.0f+width/2.0f; pts2[1][1] = dev_tri.v1.y/last_row.y*height/2.0f+height/2.0f;
-    pts2[2][0] = dev_tri.v2.x/last_row.x*width/2.0f+width/2.0f; pts2[2][1] = dev_tri.v2.y/last_row.y*height/2.0f+height/2.0f;
+    pts2[0][0] = dev_tri.v0.x/last_row.x*width/2.0f+width/2.0f; pts2[0][1] = dev_tri.v0.y/last_row.x*height/2.0f+height/2.0f;
+    pts2[1][0] = dev_tri.v1.x/last_row.y*width/2.0f+width/2.0f; pts2[1][1] = dev_tri.v1.y/last_row.y*height/2.0f+height/2.0f;
+    pts2[2][0] = dev_tri.v2.x/last_row.z*width/2.0f+width/2.0f; pts2[2][1] = dev_tri.v2.y/last_row.z*height/2.0f+height/2.0f;
 
     float bboxmin[2] = {FLT_MAX,  FLT_MAX};
     float bboxmax[2] = {-FLT_MAX, -FLT_MAX};
@@ -129,18 +129,13 @@ __device__ void rasterization(const Model::Triangle dev_tri, Model::float3 last_
         }
     }
 
-    int P[2];
-    for(P[1] = int(bboxmin[1]); P[1]<=bboxmax[1]; P[1] ++){
-        for(P[0] = int(bboxmin[0]); P[0]<=bboxmax[0]; P[0] ++){
+    float P[2];
+    for(P[1] = int(bboxmin[1]); P[1]<=bboxmax[1]; P[1] +=1.0f){
+        for(P[0] = int(bboxmin[0]); P[0]<=bboxmax[0]; P[0] +=1.0f){
             Model::float3 bc_screen  = barycentric(pts2[0], pts2[1], pts2[2], P);
 
-            // out of triangle
-//            const float eps = -0.1f;
-//            if (bc_screen.x< eps|| bc_screen.y<eps || bc_screen.z<eps) continue;
-
-            // don't know why, <0 will create little hole, ply model not that good?
-            if (bc_screen.x<-0.3f || bc_screen.y<-0.3f || bc_screen.z<-0.3f ||
-                    bc_screen.x>1.3f || bc_screen.y>1.3f || bc_screen.z>1.3f ) continue;
+            if (bc_screen.x<-0.0f || bc_screen.y<-0.0f || bc_screen.z<-0.0f ||
+                    bc_screen.x>1.0f || bc_screen.y>1.0f || bc_screen.z>1.0f ) continue;
 
             Model::float3 bc_over_z = {bc_screen.x/last_row.x, bc_screen.y/last_row.y, bc_screen.z/last_row.z};
 
@@ -148,7 +143,7 @@ __device__ void rasterization(const Model::Triangle dev_tri, Model::float3 last_
             float frag_depth = -(dev_tri.v0.z*bc_over_z.x + dev_tri.v1.z*bc_over_z.y + dev_tri.v2.z*bc_over_z.z)
                     /(bc_over_z.x + bc_over_z.y + bc_over_z.z);
 
-            atomicMin(depth_entry + (width - P[0])+(height - P[1])*width, int(frag_depth/**1000*/ + 0.5f));
+            atomicMin(depth_entry + (width - int(P[0]+0.5f))+(height - int(P[1]+0.5f))*width, int(frag_depth/**1000*/ + 0.5f));
         }
     }
 }

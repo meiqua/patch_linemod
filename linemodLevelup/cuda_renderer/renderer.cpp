@@ -1,5 +1,9 @@
 #include "renderer.h"
 #include <assert.h>
+
+#include <GL/osmesa.h>
+#include <GL/gl.h>
+#include <GL/glu.h>
 using namespace cuda_renderer;
 
 cuda_renderer::Model::~Model()
@@ -19,15 +23,30 @@ void cuda_renderer::Model::LoadModel(const std::string &fileName)
     // need to?
 //    for (unsigned int i=0; i<scene->mNumMeshes; i++){
 //      for (unsigned int j=0; j<scene->mMeshes[i]->mNumVertices; j++){
-//        scene->mMeshes[i]->mVertices[j].x *= -1;
-//        scene->mMeshes[i]->mVertices[j].y *= -1;
-//        scene->mMeshes[i]->mVertices[j].z *= -1;
+//        scene->mMeshes[i]->mVertices[j].x /= 1000;
+//        scene->mMeshes[i]->mVertices[j].y /= 1000;
+//        scene->mMeshes[i]->mVertices[j].z /= 1000;
 //      }
 //    }
 
-    tris.clear();
-    size_t guess_size = scene->mMeshes[scene->mRootNode->mMeshes[0]]->mNumFaces;
-    tris.reserve(guess_size);
+    {
+        tris.clear();
+        size_t guess_size = scene->mMeshes[scene->mRootNode->mMeshes[0]]->mNumFaces;
+        tris.reserve(guess_size);
+    }
+    {
+        faces.clear();
+        size_t guess_size = scene->mMeshes[scene->mRootNode->mMeshes[0]]->mNumFaces;
+        faces.reserve(guess_size);
+    }
+    {
+        vertices.clear();
+        size_t guess_size = scene->mMeshes[scene->mRootNode->mMeshes[0]]->mNumVertices;
+        vertices.reserve(guess_size);
+    }
+
+
+
 
     recursive_render(scene, scene->mRootNode);
 
@@ -62,6 +81,20 @@ void cuda_renderer::Model::recursive_render(const aiScene *sc, const aiNode *nd,
             tri_temp.v2 = mat_mul_vec(m, mesh->mVertices[face->mIndices[2]]);
 
             tris.push_back(tri_temp);
+
+            int3 face_temp;
+            face_temp.v0 = face->mIndices[0];
+            face_temp.v1 = face->mIndices[1];
+            face_temp.v2 = face->mIndices[2];
+            faces.push_back(face_temp);
+        }
+
+        for(size_t t = 0; t < mesh->mNumVertices; ++t){
+            float3 v;
+            v.x = mesh->mVertices[t].x;
+            v.y = mesh->mVertices[t].y;
+            v.z = mesh->mVertices[t].z;
+            vertices.push_back(v);
         }
     }
 
@@ -112,6 +145,8 @@ void cuda_renderer::Model::get_bounding_box(aiVector3D& min, aiVector3D &max) co
     get_bounding_box_for_node(scene->mRootNode, min, max, &trafo);
 }
 
+
+// renderer
 std::vector<cuda_renderer::Model::mat4x4> cuda_renderer::mat_to_compact_4x4(const std::vector<cv::Mat> &poses)
 {
     std::vector<cuda_renderer::Model::mat4x4> mat4x4s(poses.size());
@@ -167,7 +202,7 @@ static float calculateSignedArea(float* A, float* B, float* C){
     return 0.5f*((C[0]-A[0])*(B[1]-A[1]) - (B[0]-A[0])*(C[1]-A[1]));
 }
 
-static Model::float3 barycentric(float* A, float* B, float* C, size_t* P) {
+static Model::float3 barycentric(float* A, float* B, float* C, float* P) {
 
     float float_P[2] = {float(P[0]), float(P[1])};
 
@@ -223,20 +258,30 @@ static    Model::float3 get_normal(const Model::Triangle& dev_tri)
 
 static void rasterization(const Model::Triangle& dev_tri, Model::float3& last_row,
                                         float* depth_entry, size_t width, size_t height){
+//    cv::Mat depth = cv::Mat(height, width, CV_32FC1, depth_entry);
     // refer to tiny renderer
     // https://github.com/ssloy/tinyrenderer/blob/master/our_gl.cpp
     float pts2[3][2];
 
     // viewport transform(0, 0, width, height)
-    pts2[0][0] = dev_tri.v0.x/last_row.x*width/2.0f+width/2.0f; pts2[0][1] = dev_tri.v0.y/last_row.y*height/2.0f+height/2.0f;
-    pts2[1][0] = dev_tri.v1.x/last_row.x*width/2.0f+width/2.0f; pts2[1][1] = dev_tri.v1.y/last_row.y*height/2.0f+height/2.0f;
-    pts2[2][0] = dev_tri.v2.x/last_row.x*width/2.0f+width/2.0f; pts2[2][1] = dev_tri.v2.y/last_row.y*height/2.0f+height/2.0f;
+    pts2[0][0] = dev_tri.v0.x/last_row.x*width/2.0f+width/2.0f; pts2[0][1] = dev_tri.v0.y/last_row.x*height/2.0f+height/2.0f;
+    pts2[1][0] = dev_tri.v1.x/last_row.y*width/2.0f+width/2.0f; pts2[1][1] = dev_tri.v1.y/last_row.y*height/2.0f+height/2.0f;
+    pts2[2][0] = dev_tri.v2.x/last_row.z*width/2.0f+width/2.0f; pts2[2][1] = dev_tri.v2.y/last_row.z*height/2.0f+height/2.0f;
+
+//    std::cout << "\n------------------------------" << std::endl;
+//    std::cout << last_row << std::endl;
+//    std::cout << dev_tri << std::endl;
+
+//    std::cout << pts2[0][0] << "\t" << pts2[0][1] << std::endl;
+//    std::cout << pts2[1][0] << "\t" << pts2[1][1] << std::endl;
+//    std::cout << pts2[2][0] << "\t" << pts2[2][1] << std::endl;
+//    std::cout << "------------------------------\n" << std::endl;
 
     // for test
-    Model::Triangle local_tri;
-    local_tri.v0.x = pts2[0][0]; local_tri.v0.y = pts2[0][1]; local_tri.v0.z = 0;
-    local_tri.v1.x = pts2[1][0]; local_tri.v1.y = pts2[1][1]; local_tri.v1.z = 0;
-    local_tri.v2.x = pts2[2][0]; local_tri.v2.y = pts2[2][1]; local_tri.v2.z = 0;
+//    Model::Triangle local_tri;
+//    local_tri.v0.x = pts2[0][0]; local_tri.v0.y = pts2[0][1]; local_tri.v0.z = 0;
+//    local_tri.v1.x = pts2[1][0]; local_tri.v1.y = pts2[1][1]; local_tri.v1.z = 0;
+//    local_tri.v2.x = pts2[2][0]; local_tri.v2.y = pts2[2][1]; local_tri.v2.z = 0;
 
     float bboxmin[2] = {FLT_MAX,  FLT_MAX};
     float bboxmax[2] = {-FLT_MAX, -FLT_MAX};
@@ -248,9 +293,11 @@ static void rasterization(const Model::Triangle& dev_tri, Model::float3& last_ro
         }
     }
 
-    size_t P[2];
-    for(P[1] = int(bboxmin[1]); P[1]<=bboxmax[1]; P[1] ++){
-        for(P[0] = int(bboxmin[0]); P[0]<=bboxmax[0]; P[0] ++){
+    float P[2];
+
+    // there will be small holes if +1; Model may be not so good?
+    for(P[1] = int(bboxmin[1]); P[1]<=bboxmax[1]; P[1] += 1.0f){
+        for(P[0] = int(bboxmin[0]); P[0]<=bboxmax[0]; P[0] += 1.0f){
 
             Model::float3 bc_screen  = barycentric(pts2[0], pts2[1], pts2[2], P);
 
@@ -264,10 +311,8 @@ static void rasterization(const Model::Triangle& dev_tri, Model::float3& last_ro
 //            }
 
             // out of triangle
-            // don't know why, <0 will create little hole, ply model not that good?
-//            if (bc_screen.x<-0.f || bc_screen.y<-0.f || bc_screen.z<-0.f ) continue;
-            if (bc_screen.x<-0.3f || bc_screen.y<-0.3f || bc_screen.z<-0.3f ||
-                    bc_screen.x>1.3f || bc_screen.y>1.3f || bc_screen.z>1.3f ) continue;
+            if (bc_screen.x<-0.0f || bc_screen.y<-0.0f || bc_screen.z<-0.0f ||
+                    bc_screen.x>1.0f || bc_screen.y>1.0f || bc_screen.z>1.0f ) continue;
 
 //            if(test_whitch){
 //                std::cerr << "can't be here" << std::endl;
@@ -275,23 +320,25 @@ static void rasterization(const Model::Triangle& dev_tri, Model::float3& last_ro
 
             Model::float3 bc_over_z = {bc_screen.x/last_row.x, bc_screen.y/last_row.y, bc_screen.z/last_row.z};
 
-//            float depth = dev_tri.v0.z*bc_screen.x + dev_tri.v1.z*bc_screen.y + dev_tri.v2.z*bc_screen.z;
             // refer to https://en.wikibooks.org/wiki/Cg_Programming/Rasterization, Perspectively Correct Interpolation
             float frag_depth = -(dev_tri.v0.z*bc_over_z.x + dev_tri.v1.z*bc_over_z.y + dev_tri.v2.z*bc_over_z.z)
                     /(bc_over_z.x + bc_over_z.y + bc_over_z.z);
 
-//            depth = -depth;
-//            int depth = int(frag_depth*1000 + 0.5f);
+            auto& depth_to_write = depth_entry[(width - int(P[0]+0.5f))+(height - int(P[1]+0.5f))*width];
+            if(frag_depth < depth_to_write){
+                depth_to_write = frag_depth;
 
-//            assert(depth < INT16_MAX/2);
-
-            auto& depth_to_write = depth_entry[(width-P[0])+(height-P[1])*width];
-            if(frag_depth < depth_to_write) depth_to_write = frag_depth;
+//                cv::imshow("test", depth != FLT_MAX);
+//                cv::waitKey(0);
+            }
         }
     }
+
+//    cv::imshow("test", depth != FLT_MAX);
+//    cv::waitKey(0);
 }
 
-std::vector<float> cuda_renderer::render(const std::vector<cuda_renderer::Model::Triangle> &tris,
+std::vector<float> cuda_renderer::render_cpu(const std::vector<cuda_renderer::Model::Triangle> &tris,
                                            const std::vector<cuda_renderer::Model::mat4x4> &poses,
                                            size_t width, size_t height, const cuda_renderer::Model::mat4x4 &proj_mat)
 {
@@ -302,7 +349,7 @@ std::vector<float> cuda_renderer::render(const std::vector<cuda_renderer::Model:
         for(const auto& tri: tris){
             // model transform
             Model::Triangle local_tri = transform_triangle(tri, pose);
-//            if(normal_functor::get_normal(local_tri).z > 0) continue;
+//            if(normal_functor::get_normal(local_tri).z < 0) continue;
 
             // assume last column of projection matrix is  0 0 -1 0
             Model::float3 last_row = {
@@ -319,6 +366,108 @@ std::vector<float> cuda_renderer::render(const std::vector<cuda_renderer::Model:
 
     for(auto& d: depth){
         if(d==FLT_MAX) d=0;
+    }
+
+    return depth;
+}
+
+std::vector<float> cuda_renderer::render_gl(const std::vector<Model::Triangle> &tris, const std::vector<Model::mat4x4> &poses,
+                             size_t width, size_t height, const Model::mat4x4 &proj_mat)
+{
+    std::vector<float> depth(poses.size()*width*height, 0);
+
+    auto ctx_ = OSMesaCreateContextExt(OSMESA_RGB, 16, 0, 0, NULL);
+
+    void* ctx_buffer_ = malloc(width * height * 3 * sizeof(GLubyte));
+    OSMesaMakeCurrent(ctx_, ctx_buffer_, GL_UNSIGNED_BYTE, width, height);
+
+    // Initialize the environment
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0); // Uses default lighting parameters
+
+    glEnable(GL_DEPTH_TEST);
+
+    glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+    glEnable(GL_NORMALIZE);
+
+    //glColorMaterial(GL_FRONT_AND_BACK, GL_DIFFUSE);
+    //glEnable(GL_COLOR_MATERIAL);
+
+    GLfloat LightAmbient[]= { 0.5f, 0.5f, 0.5f, 1.0f };
+    GLfloat LightDiffuse[]= { 1.0f, 1.0f, 1.0f, 1.0f };
+    GLfloat LightPosition[]= { 0.0f, 0.0f, 15.0f, 1.0f };
+      glLightfv(GL_LIGHT1, GL_AMBIENT, LightAmbient);
+      glLightfv(GL_LIGHT1, GL_DIFFUSE, LightDiffuse);
+      glLightfv(GL_LIGHT1, GL_POSITION, LightPosition);
+      glEnable(GL_LIGHT1);
+
+    // bind triangle
+    glBegin(GL_TRIANGLES);
+    for(auto& tri: tris){
+        glVertex3fv((GLfloat*)(&tri.v0));
+        glVertex3fv((GLfloat*)(&tri.v1));
+        glVertex3fv((GLfloat*)(&tri.v2));
+    }
+    glEnd();
+
+    // Initialize the projection
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+
+//    double fx = 572.4114;
+//    double fy = 573.57043;
+//    double fovy = 2 * atan(0.5 * height / fy) * 180 / CV_PI;
+//    double aspect = (width * fy) / (height * fx);
+
+//    // set perspective
+//    gluPerspective(fovy, aspect, 10, 10000);
+
+    Model::mat4x4 proj_temp = proj_mat;
+    proj_temp.t();
+    GLfloat* gl_proj = reinterpret_cast<GLfloat*>(&proj_temp);
+    glLoadMatrixf(gl_proj);
+    glViewport(0, 0, width, height);
+
+    GLfloat proj_test[16];
+    glGetFloatv(GL_PROJECTION_MATRIX, proj_test);
+
+    for(size_t i=0; i<poses.size(); i++){
+        // init model matrix
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        Model::mat4x4 model_temp = poses[i];
+
+        //yz flip
+        model_temp.b0 = -model_temp.b0; model_temp.c0 = -model_temp.c0;
+        model_temp.b1 = -model_temp.b1; model_temp.c1 = -model_temp.c1;
+        model_temp.b2 = -model_temp.b2; model_temp.c2 = -model_temp.c2;
+        model_temp.b3 = -model_temp.b3; model_temp.c3 = -model_temp.c3;
+
+        model_temp.t();
+        GLfloat* gl_model = reinterpret_cast<GLfloat*>(&model_temp);
+        glLoadMatrixf(gl_model);
+
+        GLfloat model_test[16];
+        glGetFloatv(GL_MODELVIEW_MATRIX, model_test);
+
+        glFlush();
+        // Deal with the depth image
+        glReadBuffer(GL_DEPTH_ATTACHMENT);
+        glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, &depth[i*width*height]);
+    }
+
+
+    if (ctx_) {
+      OSMesaDestroyContext(ctx_);
+      ctx_ = 0;
+    }
+
+    if (ctx_buffer_)
+    {
+      free(ctx_buffer_);
+      ctx_buffer_ = 0;
     }
 
     return depth;

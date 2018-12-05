@@ -1,7 +1,4 @@
 #include "renderer.h"
-
-#include <opencv2/imgproc.hpp>
-#include <opencv2/highgui/highgui.hpp>
 #include <chrono>
 using namespace cv;
 
@@ -49,26 +46,29 @@ int main(int argc, char const *argv[])
 
     Mat R_ren = (Mat_<float>(3,3) << 0.34768538, 0.93761126, 0.00000000, 0.70540612,
                  -0.26157897, -0.65877056, -0.61767070, 0.22904489, -0.75234390);
-    Mat t_ren = (Mat_<float>(3,1) << 0.0, 0.0, 400.0);
+    Mat t_ren = (Mat_<float>(3,1) << 0.0, 0.0, 300.0);
 
     cuda_renderer::Model::mat4x4 mat4;
     mat4.init_from_cv(R_ren, t_ren);
 
     std::vector<cuda_renderer::Model::mat4x4> mat4_v(1, mat4);
 
-    cuda_renderer::Model model(prefix+"models/obj_05.ply");
+    cuda_renderer::Model model(prefix+"models/obj_06.ply");
 
-    {  // gpu need sometime to worm up? comment this will cost 5ms more
-        auto result_cpu = cuda_renderer::render(model.tris, mat4_v, width, height, proj);
+    {  // gpu need sometime to warm up. comment this will cost 5ms more
         auto result_gpu = cuda_renderer::render_cuda(model.tris, mat4_v, width, height, proj);
     }
     helper::Timer timer;
 
-    auto result_cpu = cuda_renderer::render(model.tris, mat4_v, width, height, proj);
+    auto result_cpu = cuda_renderer::render_cpu(model.tris, mat4_v, width, height, proj);
     timer.out("cpu render");
 
     auto result_gpu = cuda_renderer::render_cuda(model.tris, mat4_v, width, height, proj);
     timer.out("gpu render");
+
+    // not working yet
+//    auto result_gl = cuda_renderer::render_gl(model.tris, mat4_v, width, height, proj);
+//    timer.out("gl render");
 
     std::vector<float> result_diff(result_cpu.size());
     for(size_t i=0; i<result_cpu.size(); i++){

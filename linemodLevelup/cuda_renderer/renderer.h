@@ -5,9 +5,12 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui/highgui.hpp>
 #include <opencv2/core/core.hpp>
 #include <iostream>
 namespace cuda_renderer {
+
 class Model{
 public:
     Model();
@@ -17,6 +20,12 @@ public:
 
     const struct aiScene* scene;
     void LoadModel(const std::string & fileName);
+
+    struct int3 {
+        size_t v0;
+        size_t v1;
+        size_t v2;
+    };
 
     struct float3{
         float x;
@@ -44,6 +53,16 @@ public:
         float b0=0; float b1=1; float b2=0; float b3=0;
         float c0=0; float c1=0; float c2=1; float c3=0;
         float d0=0; float d1=0; float d2=0; float d3=1;
+
+        void t(){
+            float temp;
+            temp = a1; a1=b0; b0=temp;
+            temp = a2; a2=c0; c0=temp;
+            temp = a3; a3=d0; d0=temp;
+            temp = b2; b2=c1; c1=temp;
+            temp = b3; b3=d1; d1=temp;
+            temp = c3; c3=d2; d2=temp;
+        }
 
         void init_from_cv(const cv::Mat& pose){ // so stupid
             assert(pose.type() == CV_32F);
@@ -81,6 +100,8 @@ public:
 
     // wanted data
     std::vector<Triangle> tris;
+    std::vector<float3> vertices;
+    std::vector<int3> faces;
     aiVector3D bbox_min, bbox_max;
 
     void recursive_render(const struct aiScene *sc, const struct aiNode* nd, aiMatrix4x4 m = aiMatrix4x4());
@@ -96,7 +117,11 @@ std::vector<Model::mat4x4> mat_to_compact_4x4(const std::vector<cv::Mat>& poses)
 std::vector<float> render_cuda(const std::vector<Model::Triangle>& tris,const std::vector<Model::mat4x4>& poses,
                             size_t width, size_t height, const Model::mat4x4& proj_mat);
 
-std::vector<float> render(const std::vector<Model::Triangle>& tris,const std::vector<Model::mat4x4>& poses,
+std::vector<float> render_cpu(const std::vector<Model::Triangle>& tris,const std::vector<Model::mat4x4>& poses,
+                            size_t width, size_t height, const Model::mat4x4& proj_mat);
+
+// doesn't work yet
+std::vector<float> render_gl(const std::vector<Model::Triangle>& tris,const std::vector<Model::mat4x4>& poses,
                             size_t width, size_t height, const Model::mat4x4& proj_mat);
 
 Model::mat4x4 compute_proj(const cv::Mat& K, int width, int height, float near=10, float far=10000);

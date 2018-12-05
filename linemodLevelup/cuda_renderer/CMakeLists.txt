@@ -20,6 +20,12 @@ list(APPEND renderer_inc ${OpenCV_INCLUDE_DIRS})
 list(APPEND renderer_lib ${OpenCV_LIBS})
 
 
+# opengl
+find_package(OpenGL)
+list(APPEND renderer_inc ${${OPENGL_INCLUDE_DIR}})
+list(APPEND renderer_lib OSMesa GLU)
+
+
 # src
 SET(renderer_cuda renderer.cu)
 SET(renderer_srcs renderer.cpp)
