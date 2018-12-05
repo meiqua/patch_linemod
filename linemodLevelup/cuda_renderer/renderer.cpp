@@ -249,10 +249,8 @@ static void rasterization(const Model::Triangle& dev_tri, Model::float3& last_ro
     }
 
     size_t P[2];
-    for(P[1] = std::round(bboxmin[1]-1); P[1]<=std::round(bboxmax[1]+1); P[1] ++)
-    {
-        for(P[0] = std::round(bboxmin[0]-1); P[0]<=std::round(bboxmax[0]+1); P[0] ++)
-        {
+    for(P[1] = int(bboxmin[1]); P[1]<=bboxmax[1]; P[1] ++){
+        for(P[0] = int(bboxmin[0]); P[0]<=bboxmax[0]; P[0] ++){
 
             Model::float3 bc_screen  = barycentric(pts2[0], pts2[1], pts2[2], P);
 

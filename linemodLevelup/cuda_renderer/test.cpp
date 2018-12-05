@@ -77,7 +77,6 @@ int main(int argc, char const *argv[])
     cv::Mat depth = cv::Mat(height, width, CV_32FC1, result_gpu.data());
     cv::Mat depth_diff = cv::Mat(height, width, CV_32FC1, result_diff.data());
 
-    // emm some differences... why?
     cv::imshow("diff", depth_diff>1); //int32 to float may have 1 diff
     cv::imshow("mask", depth>0);
     cv::imshow("depth", helper::view_dep(depth));
