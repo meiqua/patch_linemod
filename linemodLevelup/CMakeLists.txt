@@ -50,8 +50,6 @@ set(LIBS
     ${OpenCV_LIBS} ${Open3D_LIBRARIES})
 
 
-add_subdirectory(cuda_renderer)
-
 pybind11_add_module(${PROJECT_NAME} ${SOURCE} ${SOURCE_PYBIND})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBS})
 
