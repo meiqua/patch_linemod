@@ -5,7 +5,7 @@
 #include <chrono>  // for high_resolution_clock
 #include <opencv2/rgbd.hpp>
 #include <opencv2/dnn.hpp>
-#include <opencv2/cudaimgproc.hpp>
+// #include <opencv2/cudaimgproc.hpp>
 using namespace std;
 using namespace cv;
 
