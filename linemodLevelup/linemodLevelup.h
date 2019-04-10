@@ -5,20 +5,6 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
-class poseRefine{
-public:
-    poseRefine(): fitness(-1), inlier_rmse(-1){}
-    void process(cv::Mat& sceneDepth, cv::Mat& modelDepth, cv::Mat& sceneK, cv::Mat& modelK,
-                 cv::Mat& modelR, cv::Mat& modelT, int detectX, int detectY);
-
-    cv::Mat get_depth_edge(cv::Mat& depth);
-
-    void cannyTraceEdge(int rowOffset, int colOffset, int row, int col, cv::Mat& canny_edge, cv::Mat& mag_nms);
-
-    cv::Mat result_refined;
-    double fitness, inlier_rmse;
-};
-
 namespace linemodLevelup {
 
 struct Feature {
@@ -374,5 +360,10 @@ protected:
 cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 
-
+namespace poseRefine_adaptor {
+    std::vector<cv::Mat> matches2poses(std::vector<linemodLevelup::Match>& matches,
+                                       linemodLevelup::Detector& detector,
+                                       std::vector<cv::Mat>& saved_poses,
+                                       cv::Mat K = cv::Mat(), size_t top100 = 100);
+}
 #endif
