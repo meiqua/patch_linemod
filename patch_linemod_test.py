@@ -238,7 +238,7 @@ if mode == 'render_train':
             views, views_level = view_sampler.sample_views(min_n_views, dep_anchors[0],
                                                            azimuth_range, elev_range,
                                                            tilt_range=(-math.pi, math.pi),
-                                                           tilt_step=math.pi / 8)
+                                                           tilt_step=math.pi / 10)
 
             print('Sampled views: ' + str(len(views)))
 
@@ -331,7 +331,7 @@ if mode == 'render_train':
                                                                azimuth_range, elev_range,
                                                                tilt_range=(-math.pi * tilt_factor,
                                                                            math.pi * tilt_factor),
-                                                               tilt_step=math.pi / 8, hinter_or_fibonacci=False)
+                                                               tilt_step=math.pi / 10, hinter_or_fibonacci=False)
                 print('Sampled views: ' + str(len(views)))
 
                 templateInfo = dict()
