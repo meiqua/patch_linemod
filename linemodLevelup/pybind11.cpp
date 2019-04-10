@@ -35,4 +35,8 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
              py::arg("dep_anchors"), py::arg("dep_range"), py::arg("masks")=cv::Mat())
         .def("getTemplates", &linemodLevelup::Detector::getTemplates)
             .def("numTemplates", &linemodLevelup::Detector::numTemplates);
+
+    m.def("matches2poses", &poseRefine_adaptor::matches2poses,
+          py::arg("matches"), py::arg("detector"), py::arg("saved_poses"),
+          py::arg("K")=cv::Mat(), py::arg("top100")=100);
 }
