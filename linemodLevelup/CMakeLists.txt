@@ -3,14 +3,12 @@ set (CMAKE_CXX_STANDARD 14)
 project(linemodLevelup_pybind)
 
 SET(CMAKE_BUILD_TYPE "Release")
-SET(CMAKE_BUILD_TYPE "Debug")
+#SET(CMAKE_BUILD_TYPE "Debug")
 SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g2 -ggdb -fopenmp")
 SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -fopenmp")
 
 
 # opencv
-set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda-8.0)
-set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} /home/meiqua/anaconda3/envs/furnace)
 find_package(OpenCV 3 REQUIRED)
 
 
@@ -31,7 +29,7 @@ endif ()
 
 
 # pybind11
-find_package(PythonLibs 3 REQUIRED)
+#find_package(PythonLibs 3 REQUIRED)
 find_package(pybind11 REQUIRED)
 include(Cmake/FindNumPy.cmake)
 

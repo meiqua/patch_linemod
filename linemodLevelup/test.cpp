@@ -10,6 +10,8 @@ using namespace std;
 using namespace cv;
 
 static std::string prefix = "/home/meiqua/patch_linemod/linemodLevelup/test/case1/";
+string dataset_prefix = "/home/meiqua/patch_linemod/public/datasets/hinterstoisser/train/06/";
+
 // for test
 std::string type2str(int type) {
   std::string r;
@@ -34,10 +36,8 @@ std::string type2str(int type) {
   return r;
 }
 void train_test(){
-    Mat rgb = cv::imread("/home/meiqua/6DPose/linemodLevelup/test/869/rgb.png");
-    Mat depth = cv::imread("/home/meiqua/6DPose/linemodLevelup/test/869/depth.png", CV_LOAD_IMAGE_ANYCOLOR | CV_LOAD_IMAGE_ANYDEPTH);
-
-    std::cout << type2str(depth.type());
+    Mat rgb = cv::imread(dataset_prefix+"/rgb/0000.png");
+    Mat depth = cv::imread(dataset_prefix+"/depth/0000.png", CV_LOAD_IMAGE_ANYCOLOR | CV_LOAD_IMAGE_ANYDEPTH);
 
     auto view_dep = [](cv::Mat dep){
         cv::Mat map = dep;
@@ -55,10 +55,10 @@ void train_test(){
     cv::waitKey(0);
 
     vector<Mat> sources;
-    sources.push_back(rgb);
+    sources.push_back(depth>0);
     sources.push_back(depth);
     auto detector = linemodLevelup::Detector(16, {4, 8}, 16);
-    detector.addTemplate(sources, "06_template", depth>0);
+    detector.addTemplate(sources, "06_template", cv::Mat());
 //    detector.writeClasses(prefix+"writeClasses/%s.yaml");
     cout << "break point line: train_test" << endl;
 }
@@ -230,8 +230,6 @@ void view_angle(){
 }
 
 int main(){
-//    icp_with_depth_check_test();
-    detect_test();
-
+    train_test();
     return 0;
 }

@@ -26,7 +26,9 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
         .def(py::init<>())
         .def(py::init<std::vector<int>, int>())
         .def(py::init<int, std::vector<int>, int>())
-        .def("addTemplate", &linemodLevelup::Detector::addTemplate)
+        .def("addTemplate", &linemodLevelup::Detector::addTemplate,
+             py::arg("sources"),py::arg("class_id"),
+             py::arg("object_mask")=cv::Mat(), py::arg("dep_anchors") = std::vector<int>())
         .def("writeClasses", &linemodLevelup::Detector::writeClasses)
         .def("clear_classes", &linemodLevelup::Detector::clear_classes)
         .def("readClasses", &linemodLevelup::Detector::readClasses)
