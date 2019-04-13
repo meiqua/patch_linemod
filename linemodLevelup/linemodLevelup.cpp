@@ -2522,7 +2522,7 @@ std::vector<Mat> poseRefine_adaptor::matches2poses(std::vector<linemodLevelup::M
 
     if(top100 > matches.size()) top100 = matches.size();
 
-    std::vector<Mat> poses(top100, cv::Mat(4, 4, CV_32F));
+    std::vector<Mat> poses(top100);
 
     for(size_t i=0; i<top100; i++){
         auto& match = matches[i];
