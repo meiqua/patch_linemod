@@ -67,7 +67,7 @@ while current_dep < dep_max:
     dep_anchors.append(int(current_dep))
     current_dep = current_dep*dep_anchor_step
 
-dep_anchors = dep_anchors[1:-1]  # discard two border dep
+# dep_anchors = dep_anchors[1:-1]  # discard two border dep
 
 print('\ndep anchors:\n {}, \ndep range: {}\n'.format(dep_anchors, dep_range))
 
@@ -104,7 +104,7 @@ if mode == 'render_train':
                                                            azimuth_range, elev_range,
                                                            tilt_range=(-math.pi * tilt_factor,
                                                                        math.pi * tilt_factor),
-                                                           tilt_step=math.pi / 8, hinter_or_fibonacci=False)
+                                                           tilt_step=math.pi / 10)
             print('Sampled views: ' + str(len(views)))
             templateInfo = dict()
 
@@ -279,19 +279,22 @@ if mode == 'test':
                     mat_view[:3, 3] = t_match.squeeze()
                     matched_poses.append(mat_view.astype(np.float32))
 
-                init_poses = linemodLevelup_pybind.matches2poses(matches, detector, matched_poses, K.astype(np.float32),
-                                                                 top100_local_refine)
-                # poses_extended = pose_refiner.poses_extend(init_poses)
-                results_unfiltered = pose_refiner.process_batch(init_poses)
-                results = results_unfiltered
-                # results = pose_refiner.results_filter(results_unfiltered)
+                results_refined = []
+                if len(matches) > 0:
+                    init_poses = linemodLevelup_pybind.matches2poses(matches, detector, matched_poses,
+                                                                     K.astype(np.float32),
+                                                                     top100_local_refine)
+                    poses_extended = pose_refiner.poses_extend(init_poses)
+                    results_unfiltered = pose_refiner.process_batch(init_poses)
 
-                print('candidates size after refine & nms: {}\n'.format(len(results)))
+                    # edge hit rate, active ratio, rmse
+                    results_refined = pose_refiner.results_filter(results_unfiltered, active_ratio, active_ratio)
+
+                print('candidates size after refine & nms: {}\n'.format(len(results_refined)))
 
                 top10 = 10
-
-                if top10 > len(results):
-                    top10 = len(results)
+                if top10 > len(results_refined):
+                    top10 = len(results_refined)
 
                 result = {}
                 result_ests = []
@@ -301,10 +304,10 @@ if mode == 'test':
                 for i in range(top10):
                     e = dict()
 
-                    resultT = np.array(results[i].transformation_)
+                    resultT = np.array(results_refined[i].transformation_)
                     e['R'] = resultT[0:3, 0:3]
                     e['t'] = resultT[:3, 3].squeeze()
-                    e['score'] = 1/(results[i].inlier_rmse_ + 0.01)
+                    e['score'] = 1/(results_refined[i].inlier_rmse_ + 0.01)
                     result_ests.append(e)
 
                 print('local refine time: {}s'.format(time.time() - local_refine_start))
@@ -349,5 +352,5 @@ if mode == 'test':
                     cv2.imshow('depth_edge', pose_refiner.scene_dep_edge)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
-                    cv2.waitKey(10)
+                    cv2.waitKey(1000)
 print('end line')
