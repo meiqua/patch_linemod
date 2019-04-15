@@ -62,6 +62,7 @@ void Template::read(const FileNode &fn)
     height = fn["height"];
     tl_x = fn["tl_x"];
     tl_y = fn["tl_y"];
+    depth = fn["depth"];
     pyramid_level = fn["pyramid_level"];
     clusters = fn["clusters"];
 
@@ -80,6 +81,7 @@ void Template::write(FileStorage &fs) const
     fs << "height" << height;
     fs << "tl_x" << tl_x;
     fs << "tl_y" << tl_y;
+    fs << "depth" << depth;
     fs << "pyramid_level" << pyramid_level;
     fs << "clusters" << clusters;
     fs << "features"
@@ -335,7 +337,7 @@ static void quantizedOrientations(const Mat &src, Mat &magnitude,
 {
     Mat smoothed;
     // Compute horizontal and vertical image derivatives on all color channels separately
-    static const int KERNEL_SIZE = 7;
+    static const int KERNEL_SIZE = 5;
     // For some reason cvSmooth/cv::GaussianBlur, cvSobel/cv::Sobel have different defaults for border handling...
     GaussianBlur(src, smoothed, Size(KERNEL_SIZE, KERNEL_SIZE), 0, 0, BORDER_REPLICATE);
 
@@ -912,7 +914,7 @@ public:
         return qd;}
 protected:
     Mat mask;
-
+    float depth_avg;
     int pyramid_level;
     Mat normal;
 
@@ -929,6 +931,7 @@ DepthNormalPyramid::DepthNormalPyramid(const Mat &src, const Mat &_mask,
       extract_threshold(_extract_threshold)
 {
     quantizedNormals(src, normal, distance_threshold, difference_threshold);
+    depth_avg = float(cv::sum(src)[0]/cv::countNonZero(src));
 }
 
 void DepthNormalPyramid::pyrDown()
@@ -1053,7 +1056,7 @@ bool DepthNormalPyramid::extractTemplate(Template &templ) const
     templ.width = -1;
     templ.height = -1;
     templ.pyramid_level = pyramid_level;
-
+    templ.depth = depth_avg;
     return true;
 }
 
@@ -2503,13 +2506,12 @@ void Detector::writeClasses(const std::string &format) const
 } // namespace linemodLevelup
 
 
-std::vector<Mat> poseRefine_adaptor::matches2poses(std::vector<linemodLevelup::Match> &matches,
+std::vector<Mat> poseRefine_adaptor::matches2poses(cv::Mat& depth, std::vector<linemodLevelup::Match> &matches,
                                                    linemodLevelup::Detector &detector,
                                                    std::vector<cv::Mat>& saved_poses,
                                                    cv::Mat K, size_t top100)
 {
     assert(saved_poses.size() > 0 && matches.size() > 0);
-
     assert(saved_poses[0].rows == 4 && saved_poses[0].cols == 4 && saved_poses[0].type() == CV_32F);
 
     float fx = 530;
@@ -2524,15 +2526,17 @@ std::vector<Mat> poseRefine_adaptor::matches2poses(std::vector<linemodLevelup::M
 
     std::vector<Mat> poses(top100);
 
-    for(size_t i=0; i<top100; i++){
-        auto& match = matches[i];
-        auto& templ = detector.getTemplates(match.class_id, match.template_id);
-        float dx = (match.x - templ[0].tl_x)/fx*1000;
-        float dy = (match.y - templ[0].tl_y)/fy*1000;
-
+    for(size_t i=0; i<top100; i++){   
         saved_poses[i].copyTo(poses[i]);
-        poses[i].at<float>(0, 3) = dx;
-        poses[i].at<float>(1, 3) = dy;
+        auto& match = matches[i];
+
+        auto& templ = detector.getTemplates(match.class_id, match.template_id);
+
+        float x = (match.x - templ[1].tl_x)/fx*templ[1].depth;
+        float y = (match.y - templ[1].tl_y)/fy*templ[1].depth;
+
+        poses[i].at<float>(0, 3) = x;
+        poses[i].at<float>(1, 3) = y;
     }
     return poses;
 }

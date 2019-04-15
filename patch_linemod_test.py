@@ -89,7 +89,7 @@ if mode == 'render_train':
     for obj_id in obj_ids_curr:
         azimuth_range = dp['test_obj_azimuth_range']
         elev_range = dp['test_obj_elev_range']
-        min_n_views = 200
+        min_n_views = 100
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
@@ -219,7 +219,7 @@ if mode == 'test':
             if im_ids:
                 im_ids_curr = set(im_ids_curr).intersection(im_ids)
 
-            active_ratio = 0.7
+            active_ratio = 0.66
             for im_id in im_ids_curr:
 
                 start_time = time.time()
@@ -245,7 +245,7 @@ if mode == 'test':
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
                 # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
-                matches = detector.match([rgb, depth], 70, active_ratio,
+                matches = detector.match([rgb, depth], 75, active_ratio,
                                          match_ids, dep_anchors, dep_range, masks=[])
 
                 if len(matches) > 0:
@@ -281,11 +281,30 @@ if mode == 'test':
 
                 results_refined = []
                 if len(matches) > 0:
-                    init_poses = linemodLevelup_pybind.matches2poses(matches, detector, matched_poses,
+                    init_poses = linemodLevelup_pybind.matches2poses(depth, matches, detector, matched_poses,
                                                                      K.astype(np.float32),
                                                                      top100_local_refine)
+
+                    show_init = False
+                    if show_init:
+                        for i in range(len(matched_poses)):
+                            templ = detector.getTemplates(matches[i].class_id, matches[i].template_id)
+                            i_p = init_poses[i]
+                            test_rgb = np.copy(rgb)
+                            [render_depth] = pose_refiner.render_depth([i_p])
+                            mask = render_depth > 0
+                            mask = mask.astype(np.uint8)
+                            rgb_mask = np.dstack([mask] * 3)
+                            render_rgb_new = pose_refiner.view_dep(render_depth)
+                            test_rgb = test_rgb * (1 - rgb_mask) + render_rgb_new * rgb_mask
+                            cv2.rectangle(test_rgb, (matches[i].x, matches[i].y),
+                                          (matches[i].x + templ[0].width, matches[i].y + templ[0].height),
+                                          (0, 0, 255), 2)
+                            cv2.imshow("test", test_rgb)
+                            cv2.waitKey(0)
+
                     poses_extended = pose_refiner.poses_extend(init_poses)
-                    results_unfiltered = pose_refiner.process_batch(init_poses)
+                    results_unfiltered = pose_refiner.process_batch(poses_extended)
 
                     # edge hit rate, active ratio, rmse
                     results_refined = pose_refiner.results_filter(results_unfiltered, active_ratio, active_ratio)
@@ -307,8 +326,12 @@ if mode == 'test':
                     resultT = np.array(results_refined[i].transformation_)
                     e['R'] = resultT[0:3, 0:3]
                     e['t'] = resultT[:3, 3].squeeze()
-                    e['score'] = 1/(results_refined[i].inlier_rmse_ + 0.01)
+                    e['score'] = 1/(10 * results_refined[i].inlier_rmse_)
                     result_ests.append(e)
+
+                if len(results_refined) > 0:
+                    print('best result fitness: {}, inlier_rmse: {}'.format(results_refined[0].fitness_,
+                                                                        results_refined[0].inlier_rmse_))
 
                 print('local refine time: {}s'.format(time.time() - local_refine_start))
 

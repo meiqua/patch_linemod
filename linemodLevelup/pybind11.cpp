@@ -38,7 +38,7 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
         .def("getTemplates", &linemodLevelup::Detector::getTemplates)
             .def("numTemplates", &linemodLevelup::Detector::numTemplates);
 
-    m.def("matches2poses", &poseRefine_adaptor::matches2poses,
+    m.def("matches2poses", &poseRefine_adaptor::matches2poses, py::arg("depth"),
           py::arg("matches"), py::arg("detector"), py::arg("saved_poses"),
           py::arg("K")=cv::Mat(), py::arg("top100")=100);
 }

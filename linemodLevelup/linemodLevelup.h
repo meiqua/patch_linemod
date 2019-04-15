@@ -27,6 +27,7 @@ struct Template
     int height;
     int tl_x;
     int tl_y;
+    float depth;
     int pyramid_level;
     int clusters;
     std::vector<Feature> features;
@@ -361,7 +362,7 @@ cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 
 namespace poseRefine_adaptor {
-    std::vector<cv::Mat> matches2poses(std::vector<linemodLevelup::Match>& matches,
+    std::vector<cv::Mat> matches2poses(cv::Mat& depth, std::vector<linemodLevelup::Match>& matches,
                                        linemodLevelup::Detector& detector,
                                        std::vector<cv::Mat>& saved_poses,
                                        cv::Mat K = cv::Mat(), size_t top100 = 100);
