@@ -219,7 +219,7 @@ if mode == 'test':
             if im_ids:
                 im_ids_curr = set(im_ids_curr).intersection(im_ids)
 
-            active_ratio = 0.66
+            active_ratio = 0.6
             for im_id in im_ids_curr:
 
                 start_time = time.time()
@@ -245,7 +245,7 @@ if mode == 'test':
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
                 # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
-                matches = detector.match([rgb, depth], 75, active_ratio,
+                matches = detector.match([rgb, depth], 70, active_ratio,
                                          match_ids, dep_anchors, dep_range, masks=[])
 
                 if len(matches) > 0:
@@ -303,7 +303,8 @@ if mode == 'test':
                             cv2.imshow("test", test_rgb)
                             cv2.waitKey(0)
 
-                    poses_extended = pose_refiner.poses_extend(init_poses)
+                    # poses_extended = pose_refiner.poses_extend(init_poses)
+                    poses_extended = init_poses
                     results_unfiltered = pose_refiner.process_batch(poses_extended)
 
                     # edge hit rate, active ratio, rmse
