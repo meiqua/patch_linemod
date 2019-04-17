@@ -296,7 +296,8 @@ public:
                              const std::vector<cv::Mat>& masks = std::vector<cv::Mat>());
 
     std::vector<int> addTemplate(const std::vector<cv::Mat>& sources, const std::string& class_id,
-                                 const cv::Mat& object_mask, const std::vector<int>& dep_anchors = std::vector<int>());
+                                 const cv::Mat object_mask = cv::Mat(),
+                                 const std::vector<int> dep_anchors = std::vector<int>());
 
     /**
    * \brief Get the modalities used by this detector.

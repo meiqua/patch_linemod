@@ -340,7 +340,7 @@ static void quantizedOrientations(const Mat &src, Mat &magnitude,
     GaussianBlur(src, smoothed, Size(KERNEL_SIZE, KERNEL_SIZE), 0, 0, BORDER_REPLICATE);
 
     if(src.channels() == 1){
-        Mat sobel_dx, sobel_dy, magnitude, sobel_ag;
+        Mat sobel_dx, sobel_dy, sobel_ag;
         Sobel(smoothed, sobel_dx, CV_32F, 1, 0, 3, 1.0, 0.0, BORDER_REPLICATE);
         Sobel(smoothed, sobel_dy, CV_32F, 0, 1, 3, 1.0, 0.0, BORDER_REPLICATE);
         magnitude = sobel_dx.mul(sobel_dx) + sobel_dy.mul(sobel_dy);
@@ -2223,7 +2223,7 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
 }
 
 std::vector<int> Detector::addTemplate(const std::vector<Mat> &sources, const std::string &class_id,
-                                       const Mat &object_mask, const std::vector<int>& dep_anchors)
+                                       const Mat object_mask, const std::vector<int> dep_anchors)
 {
     std::vector<int> successes;
 
