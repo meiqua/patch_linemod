@@ -2591,7 +2591,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 
     cv::Mat scene_depth_model_cover = cv::Mat::zeros(sceneDepth.rows, sceneDepth.cols, sceneDepth.type());
     sceneDepth(roi).copyTo(scene_depth_model_cover(roi), modelMask(bbox));
-    cv::medianBlur(scene_depth_model_cover, scene_depth_model_cover, 5);
+//    cv::medianBlur(scene_depth_model_cover, scene_depth_model_cover, 5);
 
     open3d::Image scene_depth_for_center_estimation;
     scene_depth_for_center_estimation.PrepareImage(scene_depth_model_cover.cols, scene_depth_model_cover.rows,
@@ -2678,86 +2678,120 @@ void poseRefine::cannyTraceEdge(int rowOffset, int colOffset, int row, int col, 
     }
 };
 
-Mat poseRefine::get_depth_edge(Mat &depth_)
+static cv::Mat get_normal(cv::Mat &depth__, cv::Mat K = cv::Mat())
 {
     cv::Mat depth;
-    cv::medianBlur(depth_, depth, 5);
-    cv::Mat normals = cv::Mat(depth.size(), CV_32FC3, cv::Scalar(0));
-    // method from linemod depth modality
-    {
-        cv::Mat src = depth;
-        int distance_threshold = 2000;
-        int difference_threshold = 50;
-
-        const unsigned short *lp_depth = src.ptr<ushort>();
-        cv::Vec3f *lp_normals = normals.ptr<cv::Vec3f>();
-
-        const int l_W = src.cols;
-        const int l_H = src.rows;
-
-        const int l_r = 5; // used to be 7
-        const int l_offset0 = -l_r - l_r * l_W;
-        const int l_offset1 = 0 - l_r * l_W;
-        const int l_offset2 = +l_r - l_r * l_W;
-        const int l_offset3 = -l_r;
-        const int l_offset4 = +l_r;
-        const int l_offset5 = -l_r + l_r * l_W;
-        const int l_offset6 = 0 + l_r * l_W;
-        const int l_offset7 = +l_r + l_r * l_W;
-
-        for (int l_y = l_r; l_y < l_H - l_r - 1; ++l_y)
-        {
-            const unsigned short *lp_line = lp_depth + (l_y * l_W + l_r);
-            cv::Vec3f *lp_norm = lp_normals + (l_y * l_W + l_r);
-
-            for (int l_x = l_r; l_x < l_W - l_r - 1; ++l_x)
-            {
-                long l_d = lp_line[0];
-                if (l_d < distance_threshold /*&& l_d > 0*/)
-                {
-                    // accum
-                    long l_A[4];
-                    l_A[0] = l_A[1] = l_A[2] = l_A[3] = 0;
-                    long l_b[2];
-                    l_b[0] = l_b[1] = 0;
-                    linemodLevelup::accumBilateral(lp_line[l_offset0] - l_d, -l_r, -l_r, l_A, l_b, difference_threshold);
-                    linemodLevelup::accumBilateral(lp_line[l_offset1] - l_d, 0, -l_r, l_A, l_b, difference_threshold);
-                    linemodLevelup::accumBilateral(lp_line[l_offset2] - l_d, +l_r, -l_r, l_A, l_b, difference_threshold);
-                    linemodLevelup::accumBilateral(lp_line[l_offset3] - l_d, -l_r, 0, l_A, l_b, difference_threshold);
-                    linemodLevelup::accumBilateral(lp_line[l_offset4] - l_d, +l_r, 0, l_A, l_b, difference_threshold);
-                    linemodLevelup::accumBilateral(lp_line[l_offset5] - l_d, -l_r, +l_r, l_A, l_b, difference_threshold);
-                    linemodLevelup::accumBilateral(lp_line[l_offset6] - l_d, 0, +l_r, l_A, l_b, difference_threshold);
-                    linemodLevelup::accumBilateral(lp_line[l_offset7] - l_d, +l_r, +l_r, l_A, l_b, difference_threshold);
-
-                    // solve
-                    long l_det = l_A[0] * l_A[3] - l_A[1] * l_A[1];
-                    long l_ddx = l_A[3] * l_b[0] - l_A[1] * l_b[1];
-                    long l_ddy = -l_A[1] * l_b[0] + l_A[0] * l_b[1];
-
-                    /// @todo Magic number 1150 is focal length? This is something like
-                    /// f in SXGA mode, but in VGA is more like 530.
-                    float l_nx = static_cast<float>(1150 * l_ddx);
-                    float l_ny = static_cast<float>(1150 * l_ddy);
-                    float l_nz = static_cast<float>(-l_det * l_d);
-
-                    float l_sqrt = sqrtf(l_nx * l_nx + l_ny * l_ny + l_nz * l_nz);
-
-                    if (l_sqrt > 0)
-                    {
-                        float l_norminv = 1.0f / (l_sqrt);
-
-                        l_nx *= l_norminv;
-                        l_ny *= l_norminv;
-                        l_nz *= l_norminv;
-
-                        *lp_norm = {l_nx, l_ny, l_nz};
-                    }
-                }
-                ++lp_line;
-                ++lp_norm;
-            }
-        }
+    int depth_type = depth__.type();
+    assert(depth_type == CV_16U || depth_type == CV_32S);
+    if(depth_type == CV_32S){
+        depth__.convertTo(depth, CV_16U);
+    }else{
+        depth = depth__;
     }
+
+    float fx = 530;
+    float fy = 530;
+    if(!K.empty()){
+        assert(K.type() == CV_32F);
+        fx = K.at<float>(0, 0);
+        fy = K.at<float>(1, 1);
+    }
+
+//       cv::medianBlur(depth, depth, 5);
+       cv::Mat normals = cv::Mat(depth.size(), CV_32FC3, cv::Scalar(0));
+       // method from linemod depth modality
+       {
+           cv::Mat src = depth;
+           int distance_threshold = 2000;
+           int difference_threshold = 50;
+
+           const unsigned short *lp_depth = src.ptr<ushort>();
+           cv::Vec3f *lp_normals = normals.ptr<cv::Vec3f>();
+
+           const int l_W = src.cols;
+           const int l_H = src.rows;
+
+           const int l_r = 5; // used to be 7
+           const int l_offset0 = -l_r - l_r * l_W;
+           const int l_offset1 = 0 - l_r * l_W;
+           const int l_offset2 = +l_r - l_r * l_W;
+           const int l_offset3 = -l_r;
+           const int l_offset4 = +l_r;
+           const int l_offset5 = -l_r + l_r * l_W;
+           const int l_offset6 = 0 + l_r * l_W;
+           const int l_offset7 = +l_r + l_r * l_W;
+
+           for (int l_y = l_r; l_y < l_H - l_r - 1; ++l_y)
+           {
+               const unsigned short *lp_line = lp_depth + (l_y * l_W + l_r);
+               cv::Vec3f *lp_norm = lp_normals + (l_y * l_W + l_r);
+
+               for (int l_x = l_r; l_x < l_W - l_r - 1; ++l_x)
+               {
+                   long l_d = lp_line[0];
+                   if (l_d < distance_threshold /*&& l_d > 0*/)
+                   {
+                       // accum
+                       long l_A[4];
+                       l_A[0] = l_A[1] = l_A[2] = l_A[3] = 0;
+                       long l_b[2];
+                       l_b[0] = l_b[1] = 0;
+                       linemodLevelup::accumBilateral(lp_line[l_offset0] - l_d, -l_r, -l_r, l_A, l_b, difference_threshold);
+                       linemodLevelup::accumBilateral(lp_line[l_offset1] - l_d, 0, -l_r, l_A, l_b, difference_threshold);
+                       linemodLevelup::accumBilateral(lp_line[l_offset2] - l_d, +l_r, -l_r, l_A, l_b, difference_threshold);
+                       linemodLevelup::accumBilateral(lp_line[l_offset3] - l_d, -l_r, 0, l_A, l_b, difference_threshold);
+                       linemodLevelup::accumBilateral(lp_line[l_offset4] - l_d, +l_r, 0, l_A, l_b, difference_threshold);
+                       linemodLevelup::accumBilateral(lp_line[l_offset5] - l_d, -l_r, +l_r, l_A, l_b, difference_threshold);
+                       linemodLevelup::accumBilateral(lp_line[l_offset6] - l_d, 0, +l_r, l_A, l_b, difference_threshold);
+                       linemodLevelup::accumBilateral(lp_line[l_offset7] - l_d, +l_r, +l_r, l_A, l_b, difference_threshold);
+
+                       // solve
+                       long l_det = l_A[0] * l_A[3] - l_A[1] * l_A[1];
+                       long l_ddx = l_A[3] * l_b[0] - l_A[1] * l_b[1];
+                       long l_ddy = -l_A[1] * l_b[0] + l_A[0] * l_b[1];
+
+                       float l_nx = static_cast<float>(fx * l_ddx);
+                       float l_ny = static_cast<float>(fy * l_ddy);
+                       float l_nz = static_cast<float>(-l_det * l_d);
+
+                       float l_sqrt = sqrtf(l_nx * l_nx + l_ny * l_ny + l_nz * l_nz);
+
+                       if (l_sqrt > 0)
+                       {
+                           float l_norminv = 1.0f / (l_sqrt);
+
+                           l_nx *= l_norminv;
+                           l_ny *= l_norminv;
+                           l_nz *= l_norminv;
+
+                           *lp_norm = {l_nx, l_ny, l_nz};
+                       }
+                   }
+                   ++lp_line;
+                   ++lp_norm;
+               }
+           }
+       }
+       return normals;
+}
+
+cv::Mat poseRefine::get_depth_edge(cv::Mat &depth__)
+{
+    cv::Mat depth;
+    int depth_type = depth__.type();
+    assert(depth_type == CV_16U || depth_type == CV_32S);
+    if(depth_type == CV_32S){
+        depth__.convertTo(depth, CV_16U);
+    }else{
+        depth = depth__;
+    }
+
+    float fx = 530;
+    float fy = 530;
+
+//    cv::medianBlur(depth, depth, 5);
+    cv::Mat normals = get_normal(depth);
+
     cv::Mat N_xyz[3];
     cv::split(normals, N_xyz);
 
@@ -2778,7 +2812,7 @@ Mat poseRefine::get_depth_edge(Mat &depth_)
     cv::Mat angle;
     cv::phase(sx, sy, angle, true);
 
-    Mat_<unsigned char> quantized_unfiltered;
+    cv::Mat_<unsigned char> quantized_unfiltered;
     // method from linemod quantizing orientation
     {
         angle.convertTo(quantized_unfiltered, CV_8U, 8.0 / 360.0);
@@ -2807,6 +2841,7 @@ Mat poseRefine::get_depth_edge(Mat &depth_)
 
     float tLow = 0.2f;
     float tHigh = 1.1f;
+    int max_search_neighbors_ = 50;
     cv::Mat mag_nms = cv::Mat(mag.size(), CV_32FC1, cv::Scalar(0));
     for(int r=1; r<mag.rows; r++){
         for(int c=1; c<mag.cols; c++){
@@ -2851,7 +2886,6 @@ Mat poseRefine::get_depth_edge(Mat &depth_)
 
     cv::Mat high_curvature_edge = canny_edge;
 
-    // don't distinct occluding and occluded
     cv::Mat occ_edge = cv::Mat(depth.size(), CV_8UC1, cv::Scalar(0));
     for(int r = 1; r<depth.rows-1; r++){
         for(int c = 1; c<depth.cols-1; c++){
@@ -2859,80 +2893,91 @@ Mat poseRefine::get_depth_edge(Mat &depth_)
             int dep_Dxy = depth.at<uint16_t>(r, c);
             if(dep_Dxy == 0) continue;
 
+            float dx = 0;
+            float dy = 0;
+            int invalid_count = 0;
             // 8 neibor
             int dep_dn[3][3] = {{0}};
             bool invalid = false;
             for(int offset_r=-1; offset_r<=1; offset_r++){
-                bool break_flag = false;
                 for(int offset_c=-1; offset_c<=1; offset_c++){
                     if(offset_c == 0 && offset_r == 0) continue;
                     int dep_nn = depth.at<uint16_t>(r+offset_r, c+offset_c);
                     if(dep_nn == 0){
-                        break_flag = true;
                         invalid = true;
-                        break;
+                        float factor = 1;
+                        if(std::abs(offset_c) == 1 && std::abs(offset_r) == 1)
+                            factor = 1/std::sqrt(2.0f);
+                        dx += offset_c*factor;
+                        dy += offset_r*factor;
+                        invalid_count ++;
                     }else{
                         dep_dn[offset_r+1][offset_c+1] = dep_Dxy - dep_nn;
                     }
                 }
-                if(break_flag) break;
             }
             if(!invalid){
-                int max_d = 0;
+                float max_d = 0;
                 int max_offset_r = 0;
                 int max_offset_c = 0;
                 for(int i=0; i<3; i++){
                     for(int j=0; j<3; j++){
-                        if(std::abs(dep_dn[i][j]) > max_d){
-                            max_d = std::abs(dep_dn[i][j]);
+
+                        cv::Vec3f normal = normals.at<cv::Vec3f>(r+i, c+j);
+                        cv::Vec3f vec = {
+                            (j-1)/fx,
+                            (i-1)/fy,
+                            dep_dn[i][j]/1000.0f
+                        };
+
+                        float dist = std::abs(vec.dot(normal));
+
+                        if(dist > max_d){
+                            max_d = dist;
                             max_offset_r = i-1;
                             max_offset_c = j-1;
                         }
                     }
                 }
-                if(max_d > 0.02*dep_Dxy){
+                if(max_d > 0.05f){
                     occ_edge.at<uchar>(r+max_offset_r, c+max_offset_c) = 255;
                 }
             }else{
-                occ_edge.at<uchar>(r, c) = 255;
+//                occ_edge.at<uchar>(r, c) = 255;
+                if(dx == 0 && dy == 0) continue;
+                dx /= invalid_count; dy /= invalid_count;
+
+                int corr_depth = 0;
+                for(int radius = 1; radius < max_search_neighbors_; radius++){
+                    int new_r = r + int(std::floor(dy*radius));
+                    int new_c = c + int(std::floor(dx*radius));
+                    if(new_r < 0 || new_r >= depth.rows ||
+                       new_c < 0 || new_c > depth.cols) break;
+
+                    int cur_depth = depth.at<uint16_t>(new_r, new_c);
+                    if(cur_depth > 0){ corr_depth = cur_depth; break;}
+                }
+
+                if(corr_depth > 0){
+                    int diff = corr_depth - dep_Dxy;
+                    if(std::abs(diff) > 0.02 * dep_Dxy){
+                        if(diff < 0){ // occluding edge, discard
+//                            occ_edge.at<uchar>(r, c) = 255;
+                        }else{
+                            // occluding edge,
+                            occ_edge.at<uchar>(r, c) = 255;
+
+                        }
+                    }
+                }else{
+                    // nan boundary
+                }
             }
         }
     }
-
     cv::Mat dst;
     cv::bitwise_or(high_curvature_edge, occ_edge, dst);
 
-    cv::dilate(dst, dst, cv::Mat());
-
-    cv::bitwise_not(dst, dst);
-    cv::distanceTransform(dst, dst, CV_DIST_C, 3);  //dilute distance
-
-    bool debug_ = false;
-    if(debug_){
-        auto view_dep = [](cv::Mat dep){
-            cv::Mat map = dep;
-            double min;
-            double max;
-            cv::minMaxIdx(map, &min, &max);
-            cv::Mat adjMap;
-            map.convertTo(adjMap,CV_8UC1, 255 / (max-min), -min);
-            cv::Mat falseColorsMap;
-            applyColorMap(adjMap, falseColorsMap, cv::COLORMAP_HOT);
-            return falseColorsMap;
-        };
-        imshow("Nx", view_dep(N_xyz[0]));
-        imshow("Ny", view_dep(N_xyz[1]));
-
-        imshow("sx", view_dep(sx));
-        imshow("sy", view_dep(sy));
-        imshow("mag", view_dep(mag));
-
-        imshow("occ_edge", occ_edge);
-        imshow("mag_nms", mag_nms);
-        imshow("high_curvature_edge", high_curvature_edge);
-        imshow("dst", view_dep(dst));
-        waitKey(0);
-    }
-
+    cv::dilate(dst, dst, cv::Mat::ones(5, 5, CV_8U));
     return dst;
 }

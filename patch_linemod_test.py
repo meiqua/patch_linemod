@@ -124,8 +124,8 @@ if mode == 'render_train':
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
-        pose_refiner = pose_refine_pybind.PoseRefine(model_path)
-        pose_refiner.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
+        pose_renderer = pose_refine_pybind.PoseRefine(model_path)
+        pose_renderer.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
 
         for radius in dep_anchors:
             # with camera tilt
@@ -149,7 +149,7 @@ if mode == 'render_train':
                 mat_view[:3, :3] = view['R']
                 mat_view[:3, 3] = view['t'].squeeze()
 
-                [[depth, mask]] = pose_refiner.render_depth_mask([mat_view.astype(np.float32)])
+                [[depth, mask]] = pose_renderer.render_depth_mask([mat_view.astype(np.float32)])
 
                 visual = True
                 if visual:
@@ -180,7 +180,7 @@ if mode == 'render_train':
     print('train time: {}\n'.format(elapsed_time))
 
 if mode == 'test':
-    poseRefine = linemodLevelup_pybind.poseRefine()
+    pose_refiner = linemodLevelup_pybind.poseRefine()
 
     im_size = dp['test_im_size']
     shape = (im_size[1], im_size[0])
@@ -212,8 +212,8 @@ if mode == 'test':
 
             model_path = dp['model_mpath'].format(obj_id_in_scene)
             # width height model_path
-            pose_refiner = pose_refine_pybind.PoseRefine(model_path)
-            pose_refiner.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
+            pose_renderer = pose_refine_pybind.PoseRefine(model_path)
+            pose_renderer.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
 
             template_read_classes = []
             detector.clear_classes()
@@ -255,6 +255,7 @@ if mode == 'test':
                 depth = inout.load_depth(dp['test_depth_mpath'].format(scene_id, im_id))
                 depth *= dp['cam']['depth_scale']
                 depth = depth.astype(np.uint16)  # [mm]
+                depth = cv2.medianBlur(depth, 5)
                 im_size = (depth.shape[1], depth.shape[0])
 
                 match_ids = list()
@@ -262,12 +263,12 @@ if mode == 'test':
                 for radius in dep_anchors:
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
+                linemod_time = time.time()
                 # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
                 matches = detector.match([rgb, depth], 70, active_ratio,
                                          match_ids, dep_anchors, dep_range, masks=[])
-
-                depth_edge = poseRefine.get_depth_edge(depth)  # already dilute & distant transform
-                depth_edge = (depth_edge < 1.01).astype(np.uint8)*255  # dilute once more
+                linemod_time = time.time() - linemod_time
+                depth_edge = pose_refiner.get_depth_edge(depth)
 
                 print('candidates size before refine & nms: {}\n'.format(len(matches)))
 
@@ -298,28 +299,28 @@ if mode == 'test':
                     mat_view = np.eye(4, dtype=np.float32)
                     mat_view[:3, :3] = R_match
                     mat_view[:3, 3] = t_match.squeeze()
-                    [depth_ren] = pose_refiner.render_depth([mat_view.astype(np.float32)])
+                    [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)])
 
                     # a coarse to fine icp is better
                     icp_start = time.time()
                     # make sure data type is consistent
-                    poseRefine.process(depth.astype(np.uint16), depth_ren.astype(np.uint16), K.astype(np.float32),
+                    pose_refiner.process(depth.astype(np.uint16), depth_ren.astype(np.uint16), K.astype(np.float32),
                                        K.astype(np.float32), R_match.astype(np.float32),
                                        t_match.astype(np.float32)
                                        , match.x, match.y)
                     icp_time += (time.time() - icp_start)
 
-                    if poseRefine.fitness < active_ratio or poseRefine.inlier_rmse > 0.01:
+                    if pose_refiner.fitness < active_ratio or pose_refiner.inlier_rmse > 0.01:
                         continue
 
-                    refinedR = poseRefine.result_refined[0:3, 0:3]
-                    refinedT = poseRefine.result_refined[0:3, 3]
+                    refinedR = pose_refiner.result_refined[0:3, 0:3]
+                    refinedT = pose_refiner.result_refined[0:3, 3]
                     refinedT = np.reshape(refinedT, (3,)) * 1000
-                    score = 1 / (10 * poseRefine.inlier_rmse)
+                    score = 1 / (10 * pose_refiner.inlier_rmse)
 
                     mat_view[:3, :3] = refinedR
                     mat_view[:3, 3] = refinedT.squeeze()
-                    [depth_out] = pose_refiner.render_depth([mat_view.astype(np.float32)])
+                    [depth_out] = pose_renderer.render_depth([mat_view.astype(np.float32)])
 
                     # depth edge check
                     depth_out_mask = (depth_out > 0)*255
@@ -368,6 +369,7 @@ if mode == 'test':
                 print('icp time: {}s\n'.format(icp_time))
 
                 matching_time = time.time() - start_time
+                print('linemod time: {}s'.format(linemod_time))
                 print('matching time: {}s\n'.format(matching_time))
 
                 result['ests'] = result_ests
@@ -387,10 +389,10 @@ if mode == 'test':
                     mat_view = np.eye(4, dtype=np.float32)
                     mat_view[:3, :3] = render_R
                     mat_view[:3, 3] = render_t.squeeze()
-                    [depth_ren] = pose_refiner.render_depth([mat_view.astype(np.float32)])
+                    [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)])
 
                     render_depth = depth_ren
-                    render_rgb_new = pose_refiner.view_dep(depth_ren)
+                    render_rgb_new = pose_renderer.view_dep(depth_ren)
 
                     visible_mask = render_depth < depth
                     mask = render_depth > 0
