@@ -9,9 +9,9 @@ class poseRefine{
 public:
     poseRefine(): fitness(-1), inlier_rmse(-1){}
     void process(cv::Mat& sceneDepth, cv::Mat& modelDepth, cv::Mat& sceneK, cv::Mat& modelK,
-                 cv::Mat& modelR, cv::Mat& modelT, int detectX, int detectY);
+                 cv::Mat& modelR, cv::Mat& modelT, int detectX, int detectY, double threshold = 0.007);
 
-    cv::Mat get_depth_edge(cv::Mat& depth);
+    cv::Mat get_depth_edge(cv::Mat& depth, int dilute_size = 5);
 
     void cannyTraceEdge(int rowOffset, int colOffset, int row, int col, cv::Mat& canny_edge, cv::Mat& mag_nms);
 
@@ -259,6 +259,9 @@ struct Match
     float similarity;
     std::string class_id;
     int template_id;
+
+    void read(const cv::FileNode& fn);
+    void write(cv::FileStorage& fs) const;
 };
 
 inline
@@ -333,6 +336,9 @@ public:
 
     void read(const cv::FileNode& fn);
     void write(cv::FileStorage& fs) const;
+
+    std::vector<Match> read_matches(std::string path);
+    void write_matches(std::vector<Match> & matches, std::string path) const;
 
     std::string readClass(const cv::FileNode& fn, const std::string &class_id_override = "");
     void writeClass(const std::string& class_id, cv::FileStorage& fs) const;

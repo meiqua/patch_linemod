@@ -104,11 +104,13 @@ print('\ndep anchors:\n {}, \ndep range: {}\n'.format(dep_anchors, dep_range))
 
 top_level_path = os.path.dirname(os.path.abspath(__file__))
 template_saved_to = join(dp['base_path'], 'linemod_render_up', '%s.yaml')
+matches_saved_to = join(dp['base_path'], 'linemod_render_up_matches_dump', '{:02d}_{:02d}_{:04d}.yaml')
 tempInfo_saved_to = join(dp['base_path'], 'linemod_render_up', '{:02d}_info_{}.yaml')
 result_base_path = join(top_level_path, 'public', 'sixd_results', 'patch-linemod_'+dataset)
 
 misc.ensure_dir(os.path.dirname(template_saved_to))
 misc.ensure_dir(os.path.dirname(tempInfo_saved_to))
+misc.ensure_dir(os.path.dirname(matches_saved_to))
 misc.ensure_dir(result_base_path)
 
 if mode == 'render_train':
@@ -264,11 +266,17 @@ if mode == 'test':
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
                 linemod_time = time.time()
-                # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
-                matches = detector.match([rgb, depth], 70, active_ratio,
-                                         match_ids, dep_anchors, dep_range, masks=[])
+                dump_matches = False
+                if dump_matches:
+                    # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
+                    matches = detector.match([rgb, depth], 70, active_ratio,
+                                             match_ids, dep_anchors, dep_range, masks=[])
+                    detector.write_matches(matches, matches_saved_to.format(scene_id, obj_id_in_scene, im_id))
+                else:
+                    matches = detector.read_matches(matches_saved_to.format(scene_id, obj_id_in_scene, im_id))
+
                 linemod_time = time.time() - linemod_time
-                depth_edge = pose_refiner.get_depth_edge(depth)
+                depth_edge = pose_refiner.get_depth_edge(depth, 5)
 
                 print('candidates size before refine & nms: {}\n'.format(len(matches)))
 
@@ -301,13 +309,12 @@ if mode == 'test':
                     mat_view[:3, 3] = t_match.squeeze()
                     [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)])
 
-                    # a coarse to fine icp is better
                     icp_start = time.time()
                     # make sure data type is consistent
                     pose_refiner.process(depth.astype(np.uint16), depth_ren.astype(np.uint16), K.astype(np.float32),
                                        K.astype(np.float32), R_match.astype(np.float32),
                                        t_match.astype(np.float32)
-                                       , match.x, match.y)
+                                       , match.x, match.y, 0.007)
                     icp_time += (time.time() - icp_start)
 
                     if pose_refiner.fitness < active_ratio or pose_refiner.inlier_rmse > 0.01:

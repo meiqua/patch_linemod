@@ -39,6 +39,8 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
         .def("writeClasses", &linemodLevelup::Detector::writeClasses)
         .def("clear_classes", &linemodLevelup::Detector::clear_classes)
         .def("readClasses", &linemodLevelup::Detector::readClasses)
+        .def("write_matches", &linemodLevelup::Detector::write_matches)
+        .def("read_matches", &linemodLevelup::Detector::read_matches)
         .def("match", &linemodLevelup::Detector::match, py::arg("sources"),
              py::arg("threshold"), py::arg("active_ratio"), py::arg("class_ids"),
              py::arg("dep_anchors"), py::arg("dep_range"), py::arg("masks")=cv::Mat())
