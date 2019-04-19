@@ -314,7 +314,7 @@ if mode == 'test':
                     pose_refiner.process(depth.astype(np.uint16), depth_ren.astype(np.uint16), K.astype(np.float32),
                                        K.astype(np.float32), R_match.astype(np.float32),
                                        t_match.astype(np.float32)
-                                       , match.x, match.y, 0.007)
+                                       , match.x, match.y, 0.01)
                     icp_time += (time.time() - icp_start)
 
                     if pose_refiner.fitness < active_ratio or pose_refiner.inlier_rmse > 0.01:

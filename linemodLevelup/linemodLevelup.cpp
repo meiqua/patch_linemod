@@ -2646,7 +2646,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
                 scene_depth_for_center_estimation.data_.begin());
     auto scene_pcd_for_center = open3d::CreatePointCloudFromDepthImage(scene_depth_for_center_estimation, K_scene_open3d);
 
-    double voxel_size = 0.0025;
+    double voxel_size = 0.002;
     auto model_pcd_down = open3d::VoxelDownSample(*model_pcd, voxel_size);
     auto scene_pcd_down = open3d::VoxelDownSample(*scene_pcd_for_center, voxel_size);
 
