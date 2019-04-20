@@ -30,8 +30,8 @@ dataset = 'hinterstoisser'
 # dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
-# mode = 'render_train'
-mode = 'test'
+mode = 'render_train'
+# mode = 'test'
 
 dp = get_dataset_params(dataset)
 detector = linemodLevelup_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
@@ -89,7 +89,7 @@ if mode == 'render_train':
     for obj_id in obj_ids_curr:
         azimuth_range = dp['test_obj_azimuth_range']
         elev_range = dp['test_obj_elev_range']
-        min_n_views = 200
+        min_n_views = 400
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
@@ -104,7 +104,7 @@ if mode == 'render_train':
                                                            azimuth_range, elev_range,
                                                            tilt_range=(-math.pi * tilt_factor,
                                                                        math.pi * tilt_factor),
-                                                           tilt_step=math.pi / 10, hinter_or_fibonacci=False)
+                                                           tilt_step=math.pi / 18, hinter_or_fibonacci=False)
             print('Sampled views: ' + str(len(views)))
             templateInfo = dict()
 
@@ -244,7 +244,7 @@ if mode == 'test':
                 for radius in dep_anchors:
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
-                dump_matches = False
+                dump_matches = True
                 if dump_matches:
                     # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
                     matches = detector.match([rgb, depth], 70, active_ratio,
@@ -277,10 +277,10 @@ if mode == 'test':
                 results_refined = []
                 if len(matches) > 0:
                     init_poses = linemodLevelup_pybind.matches2poses(matches, detector, matched_poses,
-                                                                     K.astype(np.float32))
+                                                                     K.astype(np.float32), True, 32, np.pi/6)
 
-                    poses_extended = pose_refiner.poses_extend(init_poses)
-                    # poses_extended = init_poses
+                    # poses_extended = pose_refiner.poses_extend(init_poses)
+                    poses_extended = init_poses
                     results_unfiltered = pose_refiner.process_batch(poses_extended, 1)
 
                     # edge hit rate, active ratio, rmse
@@ -352,5 +352,5 @@ if mode == 'test':
                     cv2.imshow('depth_edge', pose_refiner.scene_dep_edge)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
-                    cv2.waitKey(10)
+                    cv2.waitKey(1)
 print('end line')

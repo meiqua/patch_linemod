@@ -43,5 +43,5 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
     m.def("matches2poses", &poseRefine_adaptor::matches2poses,
           py::arg("matches"), py::arg("detector"), py::arg("saved_poses"),
           py::arg("K")=cv::Mat(), py::arg("top100")=100,
-          py::arg("nms")=false, py::arg("pixel_cell")=16, py::arg("angle_cell")=CV_PI/10);
+          py::arg("nms")=false, py::arg("pixel_cell")=16, py::arg("angle_cell")=CV_PI/8);
 }
