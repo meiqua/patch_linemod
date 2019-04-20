@@ -241,6 +241,9 @@ struct Match
         return x == rhs.x && y == rhs.y && similarity == rhs.similarity && class_id == rhs.class_id;
     }
 
+    void read(const cv::FileNode& fn);
+    void write(cv::FileStorage& fs) const;
+
     int x;
     int y;
     float similarity;
@@ -320,6 +323,9 @@ public:
     void read(const cv::FileNode& fn);
     void write(cv::FileStorage& fs) const;
 
+    std::vector<Match> read_matches(std::string path);
+    void write_matches(std::vector<Match> & matches, std::string path) const;
+
     std::string readClass(const cv::FileNode& fn, const std::string &class_id_override = "");
     void writeClass(const std::string& class_id, cv::FileStorage& fs) const;
 
@@ -362,9 +368,24 @@ cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 
 namespace poseRefine_adaptor {
-    std::vector<cv::Mat> matches2poses(cv::Mat& depth, std::vector<linemodLevelup::Match>& matches,
+
+template <typename T>
+struct hash : std::unary_function<T, size_t> {
+    std::size_t operator()(T const& matrix) const {
+        size_t seed = 0;
+        for (int i = 0; i < (int)matrix.size(); i++) {
+            auto elem = *(matrix.data() + i);
+            seed ^= std::hash<typename T::value_type>()(elem) + 0x9e3779b9 +
+                    (seed << 6) + (seed >> 2);
+        }
+        return seed;
+    }
+};
+
+std::vector<cv::Mat> matches2poses(std::vector<linemodLevelup::Match>& matches,
                                        linemodLevelup::Detector& detector,
                                        std::vector<cv::Mat>& saved_poses,
-                                       cv::Mat K = cv::Mat(), size_t top100 = 100);
+                                       cv::Mat K = cv::Mat(), size_t top100 = 100,
+                                   bool nms = false, int pixel_cell = 16, float angle_cell = CV_PI/10);
 }
 #endif

@@ -10,8 +10,6 @@ from os.path import join
 import linemodLevelup_pybind
 import pose_refine_pybind
 
-from pysixd import renderer
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def draw_axis(img, R, t, K):
@@ -75,9 +73,11 @@ top_level_path = os.path.dirname(os.path.abspath(__file__))
 template_saved_to = join(dp['base_path'], 'linemod_render_up', '%s.yaml')
 tempInfo_saved_to = join(dp['base_path'], 'linemod_render_up', '{:02d}_info_{}.yaml')
 result_base_path = join(top_level_path, 'public', 'sixd_results', 'patch-linemod_'+dataset)
+matches_saved_to = join(dp['base_path'], 'linemod_render_up_matches_dump', '{:02d}_{:02d}_{:04d}.yaml')
 
 misc.ensure_dir(os.path.dirname(template_saved_to))
 misc.ensure_dir(os.path.dirname(tempInfo_saved_to))
+misc.ensure_dir(os.path.dirname(matches_saved_to))
 misc.ensure_dir(result_base_path)
 
 if mode == 'render_train':
@@ -89,7 +89,7 @@ if mode == 'render_train':
     for obj_id in obj_ids_curr:
         azimuth_range = dp['test_obj_azimuth_range']
         elev_range = dp['test_obj_elev_range']
-        min_n_views = 100
+        min_n_views = 200
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
@@ -104,7 +104,7 @@ if mode == 'render_train':
                                                            azimuth_range, elev_range,
                                                            tilt_range=(-math.pi * tilt_factor,
                                                                        math.pi * tilt_factor),
-                                                           tilt_step=math.pi / 10)
+                                                           tilt_step=math.pi / 10, hinter_or_fibonacci=False)
             print('Sampled views: ' + str(len(views)))
             templateInfo = dict()
 
@@ -244,28 +244,23 @@ if mode == 'test':
                 for radius in dep_anchors:
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
-                # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
-                matches = detector.match([rgb, depth], 70, active_ratio,
-                                         match_ids, dep_anchors, dep_range, masks=[])
-
-                if len(matches) > 0:
-                    aTemplateInfo = templateInfo[matches[0].class_id]
-                    render_K = aTemplateInfo[0]['cam_K']
+                dump_matches = False
+                if dump_matches:
+                    # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
+                    matches = detector.match([rgb, depth], 70, active_ratio,
+                                             match_ids, dep_anchors, dep_range, masks=[])
+                    detector.write_matches(matches, matches_saved_to.format(scene_id, obj_id_in_scene, im_id))
+                else:
+                    matches = detector.read_matches(matches_saved_to.format(scene_id, obj_id_in_scene, im_id))
 
                 print('candidates size before refine & nms: {}\n'.format(len(matches)))
 
                 local_refine_start = time.time()
 
-                top100_local_refine = 100  # avoid too many for simple obj,
-                # we observed more than 1000 when active ratio too low
-
-                if top100_local_refine > len(matches):
-                    top100_local_refine = len(matches)
-
                 raw_match_rgb = np.copy(rgb)
 
                 matched_poses = []
-                for i in range(top100_local_refine):
+                for i in range(len(matches)):
                     match = matches[i]
                     templ = detector.getTemplates(match.class_id, match.template_id)
                     cv2.circle(raw_match_rgb, (int(match.x + templ[0].width / 2), int(match.y + templ[0].height / 2)),
@@ -281,34 +276,15 @@ if mode == 'test':
 
                 results_refined = []
                 if len(matches) > 0:
-                    init_poses = linemodLevelup_pybind.matches2poses(depth, matches, detector, matched_poses,
-                                                                     K.astype(np.float32),
-                                                                     top100_local_refine)
+                    init_poses = linemodLevelup_pybind.matches2poses(matches, detector, matched_poses,
+                                                                     K.astype(np.float32))
 
-                    show_init = False
-                    if show_init:
-                        for i in range(len(matched_poses)):
-                            templ = detector.getTemplates(matches[i].class_id, matches[i].template_id)
-                            i_p = init_poses[i]
-                            test_rgb = np.copy(rgb)
-                            [render_depth] = pose_refiner.render_depth([i_p])
-                            mask = render_depth > 0
-                            mask = mask.astype(np.uint8)
-                            rgb_mask = np.dstack([mask] * 3)
-                            render_rgb_new = pose_refiner.view_dep(render_depth)
-                            test_rgb = test_rgb * (1 - rgb_mask) + render_rgb_new * rgb_mask
-                            cv2.rectangle(test_rgb, (matches[i].x, matches[i].y),
-                                          (matches[i].x + templ[0].width, matches[i].y + templ[0].height),
-                                          (0, 0, 255), 2)
-                            cv2.imshow("test", test_rgb)
-                            cv2.waitKey(0)
-
-                    # poses_extended = pose_refiner.poses_extend(init_poses)
-                    poses_extended = init_poses
-                    results_unfiltered = pose_refiner.process_batch(poses_extended)
+                    poses_extended = pose_refiner.poses_extend(init_poses)
+                    # poses_extended = init_poses
+                    results_unfiltered = pose_refiner.process_batch(poses_extended, 1)
 
                     # edge hit rate, active ratio, rmse
-                    results_refined = pose_refiner.results_filter(results_unfiltered, active_ratio, active_ratio)
+                    results_refined = pose_refiner.results_filter(results_unfiltered, active_ratio, active_ratio, 0.005)
 
                 print('candidates size after refine & nms: {}\n'.format(len(results_refined)))
 
@@ -376,5 +352,5 @@ if mode == 'test':
                     cv2.imshow('depth_edge', pose_refiner.scene_dep_edge)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
-                    cv2.waitKey(1000)
+                    cv2.waitKey(10)
 print('end line')

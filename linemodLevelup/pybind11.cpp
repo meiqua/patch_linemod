@@ -31,6 +31,8 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
              py::arg("object_mask")=cv::Mat(), py::arg("dep_anchors") = std::vector<int>())
         .def("writeClasses", &linemodLevelup::Detector::writeClasses)
         .def("clear_classes", &linemodLevelup::Detector::clear_classes)
+        .def("write_matches", &linemodLevelup::Detector::write_matches)
+        .def("read_matches", &linemodLevelup::Detector::read_matches)
         .def("readClasses", &linemodLevelup::Detector::readClasses)
         .def("match", &linemodLevelup::Detector::match, py::arg("sources"),
              py::arg("threshold"), py::arg("active_ratio"), py::arg("class_ids"),
@@ -38,7 +40,8 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
         .def("getTemplates", &linemodLevelup::Detector::getTemplates)
             .def("numTemplates", &linemodLevelup::Detector::numTemplates);
 
-    m.def("matches2poses", &poseRefine_adaptor::matches2poses, py::arg("depth"),
+    m.def("matches2poses", &poseRefine_adaptor::matches2poses,
           py::arg("matches"), py::arg("detector"), py::arg("saved_poses"),
-          py::arg("K")=cv::Mat(), py::arg("top100")=100);
+          py::arg("K")=cv::Mat(), py::arg("top100")=100,
+          py::arg("nms")=false, py::arg("pixel_cell")=16, py::arg("angle_cell")=CV_PI/10);
 }

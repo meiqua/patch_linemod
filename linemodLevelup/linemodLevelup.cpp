@@ -1,10 +1,11 @@
 #include "linemodLevelup.h"
 #include <memory>
 #include <iostream>
-#include <opencv2/dnn.hpp>
 #include <assert.h>
 #include <queue>
 #include <set>
+#include "opencv2/calib3d.hpp"
+#include <unordered_map>
 #include "Open3D/Core/Registration/Registration.h"
 #include "Open3D/Core/Geometry/Image.h"
 #include "Open3D/Core/Camera/PinholeCameraIntrinsic.h"
@@ -2479,6 +2480,52 @@ void Detector::writeClass(const std::string &class_id, FileStorage &fs) const
     fs << "]"; // pyramids
 }
 
+std::vector<Match> Detector::read_matches(std::string path)
+{
+    FileStorage fn(path, FileStorage::READ);
+    std::vector<Match> matches;
+    FileNode matches_fn = fn["matches"];
+    FileNodeIterator it = matches_fn.begin(), it_end = matches_fn.end();
+    for (; it != it_end; ++it)
+    {
+        Match m;
+        m.read(*it);
+        matches.push_back(m);
+    }
+    return matches;
+}
+
+void Match::read(const FileNode &fn)
+{
+    x = fn["x"];
+    y = fn["y"];
+    similarity = fn["similarity"];
+    fn["class_id"] >> class_id;
+    template_id = fn["template_id"];
+}
+
+void Match::write(FileStorage &fs) const
+{
+    fs << "x" << x;
+    fs << "y" << y;
+    fs << "similarity" << similarity;
+    fs << "class_id" << class_id;
+    fs << "template_id" << template_id;
+}
+
+void Detector::write_matches(std::vector<Match> &matches, std::string path) const
+{
+    FileStorage fs(path, FileStorage::WRITE);
+    fs << "matches"
+       << "[";
+    for(int i=0; i<matches.size(); i++){
+        fs << "{";
+        matches[i].write(fs);
+        fs << "}";
+    }
+    fs  << "]";
+}
+
 void Detector::readClasses(const std::vector<std::string> &class_ids,
                            const std::string &format)
 {
@@ -2505,13 +2552,13 @@ void Detector::writeClasses(const std::string &format) const
 
 } // namespace linemodLevelup
 
-
-std::vector<Mat> poseRefine_adaptor::matches2poses(cv::Mat& depth, std::vector<linemodLevelup::Match> &matches,
+std::vector<Mat> poseRefine_adaptor::matches2poses(std::vector<linemodLevelup::Match> &matches,
                                                    linemodLevelup::Detector &detector,
                                                    std::vector<cv::Mat>& saved_poses,
-                                                   cv::Mat K, size_t top100)
+                                                   cv::Mat K, size_t top100,
+                                                   bool nms, int pixel_cell, float angle_cell)
 {
-    assert(saved_poses.size() > 0 && matches.size() > 0);
+    assert(saved_poses.size() > 0 && matches.size() == saved_poses.size());
     assert(saved_poses[0].rows == 4 && saved_poses[0].cols == 4 && saved_poses[0].type() == CV_32F);
 
     float fx = 530;
@@ -2520,6 +2567,55 @@ std::vector<Mat> poseRefine_adaptor::matches2poses(cv::Mat& depth, std::vector<l
         assert(K.type() == CV_32F);
         fx = K.at<float>(0, 0);
         fy = K.at<float>(1, 1);
+    }
+
+    if(nms){
+        struct temp_storage{
+            linemodLevelup::Match m;
+            cv::Mat pose;
+        };
+
+        std::unordered_map<std::vector<int>, temp_storage,
+                           poseRefine_adaptor::hash<std::vector<int>>>
+                voxelIndex;
+
+        for(int i=0; i<saved_poses.size(); i++){
+            auto& match = matches[i];
+            cv::Mat R = saved_poses[i](cv::Rect(0, 0, 3, 3));
+
+            cv::Mat R_v;
+            cv::Rodrigues(R, R_v);
+            assert(R_v.type() == CV_32F);
+
+            R_v.at<float>(0, 0) += CV_PI;
+            R_v.at<float>(1, 0) += CV_PI;
+            R_v.at<float>(2, 0) += CV_PI;
+            assert(R_v.at<float>(0, 0) > 0 && R_v.at<float>(0, 0) < 2*CV_PI);
+            assert(R_v.at<float>(1, 0) > 0 && R_v.at<float>(1, 0) < 2*CV_PI);
+            assert(R_v.at<float>(2, 0) > 0 && R_v.at<float>(2, 0) < 2*CV_PI);
+
+            std::vector<int> index(5);
+            index[0] = int(R_v.at<float>(0, 0)/angle_cell);
+            index[1] = int(R_v.at<float>(1, 0)/angle_cell);
+            index[2] = int(R_v.at<float>(2, 0)/angle_cell);
+            index[3] = int((match.x)/pixel_cell);
+            index[4] = int((match.y)/pixel_cell);
+
+            if(voxelIndex.find(index) != voxelIndex.end())
+                if(voxelIndex[index].m.similarity >= match.similarity) continue;
+
+            temp_storage temp;
+            temp.m = match;
+            temp.pose = saved_poses[i];
+            voxelIndex[index] = temp;
+        }
+
+        matches.clear();
+        saved_poses.clear();
+        for(auto voxel: voxelIndex){
+            matches.push_back(voxel.second.m);
+            saved_poses.push_back(voxel.second.pose);
+        }
     }
 
     if(top100 > matches.size()) top100 = matches.size();
