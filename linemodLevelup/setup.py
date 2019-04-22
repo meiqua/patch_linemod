@@ -58,13 +58,13 @@ class CMakeBuild(build_ext):
         subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=self.build_temp)
 
 setup(
-    name='linemodLevelup_pybind',
+    name='patch_linemod_pybind',
     version='0.0.1',
     author='meiqua',
     author_email='rfjiang@qq.com',
     description='for linemod',
     long_description='',
-    ext_modules=[CMakeExtension('linemodLevelup_pybind')],
+    ext_modules=[CMakeExtension('patch_linemod_pybind')],
     cmdclass=dict(build_ext=CMakeBuild),
     zip_safe=False,
 )

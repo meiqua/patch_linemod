@@ -118,7 +118,7 @@ public:
    * \param[in] mask Optional mask. If not empty, unmasked pixels are set to zero
    *                 in quantized image and cannot be extracted as features.
    */
-    cv::Ptr<QuantizedPyramid> process(const std::vector<cv::Mat> &src,
+    cv::Ptr<QuantizedPyramid> process(const cv::Mat &src,
                                       const cv::Mat& mask = cv::Mat()) const
     {
         return processImpl(src, mask);
@@ -139,7 +139,7 @@ public:
 
 protected:
     // Indirection is because process() has a default parameter.
-    virtual cv::Ptr<QuantizedPyramid> processImpl(const std::vector<cv::Mat> &src,
+    virtual cv::Ptr<QuantizedPyramid> processImpl(const cv::Mat &src,
                                                   const cv::Mat& mask) const =0;
 };
 
@@ -172,7 +172,7 @@ public:
     virtual void read(const cv::FileNode& fn);
     virtual void write(cv::FileStorage& fs) const;
 protected:
-    virtual cv::Ptr<QuantizedPyramid> processImpl(const std::vector<cv::Mat> &src,
+    virtual cv::Ptr<QuantizedPyramid> processImpl(const cv::Mat &src,
                                                   const cv::Mat& mask) const;
 };
 
@@ -211,7 +211,7 @@ public:
     virtual void write(cv::FileStorage& fs) const;
 
 protected:
-    virtual cv::Ptr<QuantizedPyramid> processImpl(const std::vector<cv::Mat> &src,
+    virtual cv::Ptr<QuantizedPyramid> processImpl(const cv::Mat &src,
                                                   const cv::Mat& mask) const;
 };
 
@@ -256,28 +256,25 @@ Match::Match(int _x, int _y, float _similarity, const std::string& _class_id, in
     : x(_x), y(_y), similarity(_similarity), class_id(_class_id), template_id(_template_id)
 {}
 
-/**
- * \brief Object detector using the LINE template matching algorithm with any set of
- * modalities.
- */
+struct Pose_structure{
+    std::vector<cv::Mat> Ts;
+    struct Node{
+        int id;
+        std::vector<int> adjs;
+    };
+    std::vector<Node> nodes;
+
+    int select_behalf(std::vector<int>& current_cluster){
+        return current_cluster[0]; // may select better behalf if use SO3 pose sampler
+    }
+};
+class PoseRefine;
 class Detector
 {
 public:
-    /**
-   * \brief Empty constructor, initialize with read().
-   */
     Detector();
-
     Detector(std::vector<int> T, int clusters_ = 16);
     Detector(int num_features, std::vector<int> T, int clusters_ = 16);
-
-    /**
-   * \brief Constructor.
-   *
-   * \param modalities       Modalities to use (color gradients, depth normals, ...).
-   * \param T_pyramid        Value of the sampling step T at each pyramid level. The
-   *                         number of pyramid levels is T_pyramid.size().
-   */
     Detector(const std::vector< cv::Ptr<Modality> >& modalities, const std::vector<int>& T_pyramid);
 
     std::vector<Match> match(const std::vector<cv::Mat>& sources, float threshold, float active_ratio = 0.6,
@@ -285,33 +282,15 @@ public:
                              const std::vector<int>& dep_anchors = std::vector<int>(), const int dep_range = 200,
                              const std::vector<cv::Mat>& masks = std::vector<cv::Mat>());
 
+    void build_templ_tree(Pose_structure& structure, PoseRefine& renderer);
+    bool is_similar(cv::Mat& pose1, cv::Mat& pose2, int pyr_level, int stride, PoseRefine& renderer);
+
     std::vector<int> addTemplate(const std::vector<cv::Mat>& sources, const std::string& class_id,
                                  const cv::Mat object_mask = cv::Mat(), const std::vector<int>& dep_anchors = std::vector<int>());
 
-    /**
-   * \brief Get the modalities used by this detector.
-   *
-   * You are not permitted to add/remove modalities, but you may dynamic_cast them to
-   * tweak parameters.
-   */
     const std::vector< cv::Ptr<Modality> >& getModalities() const { return modalities; }
-
-    /**
-   * \brief Get sampling step T at pyramid_level.
-   */
     int getT(int pyramid_level) const { return T_at_level[pyramid_level]; }
-
-    /**
-   * \brief Get number of pyramid levels used by this detector.
-   */
     int pyramidLevels() const { return pyramid_levels; }
-
-    /**
-   * \brief Get the template pyramid identified by template_id.
-   *
-   * For example, with 2 modalities (Gradient, Normal) and two pyramid levels
-   * (L0, L1), the order is (GradientL0, NormalL0, GradientL1, NormalL1).
-   */
     const std::vector<Template>& getTemplates(const std::string& class_id, int template_id) const;
 
     int numTemplates() const;
@@ -334,6 +313,10 @@ public:
     void writeClasses(const std::string& format = "templates_%s.yml.gz") const;
     void clear_classes(){class_templates.clear();}
 
+    // for pose refine
+    cv::Mat make_quantized_rgb(cv::Mat& rgb, int spread_T = 2);
+    bool is_responsible(cv::Mat& target, cv::Mat& quantized_rgb, float threshold = 70, float active_ratio = 0.6f);
+
 protected:
 
     int clusters;
@@ -341,6 +324,17 @@ protected:
     std::vector< cv::Ptr<Modality> > modalities;
     int pyramid_levels;
     std::vector<int> T_at_level;
+
+
+    struct Coarse2Fine_tree{
+        struct Node{
+            int id;
+            std::vector<int> child;
+        };
+        std::vector<Node> nodes;
+    };
+    std::vector<Coarse2Fine_tree> templ_tree;
+
 
     typedef std::vector<Template> TemplatePyramid;
     typedef std::map<std::string, std::vector<TemplatePyramid> > TemplatesMap;
@@ -358,34 +352,14 @@ protected:
 
 };
 
-/**
- * \brief Factory function for detector using LINE-MOD algorithm with color gradients
- * and depth normals.
- *
- * Default parameter settings suitable for VGA images.
- */
 cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 
 namespace poseRefine_adaptor {
 
-template <typename T>
-struct hash : std::unary_function<T, size_t> {
-    std::size_t operator()(T const& matrix) const {
-        size_t seed = 0;
-        for (int i = 0; i < (int)matrix.size(); i++) {
-            auto elem = *(matrix.data() + i);
-            seed ^= std::hash<typename T::value_type>()(elem) + 0x9e3779b9 +
-                    (seed << 6) + (seed >> 2);
-        }
-        return seed;
-    }
-};
-
 std::vector<cv::Mat> matches2poses(std::vector<linemodLevelup::Match>& matches,
                                        linemodLevelup::Detector& detector,
                                        std::vector<cv::Mat>& saved_poses,
-                                       cv::Mat K = cv::Mat(), size_t top100 = 100,
-                                   bool nms = false, int pixel_cell = 16, float angle_cell = CV_PI/10);
+                                       cv::Mat K = cv::Mat(), size_t top100 = 100);
 }
 #endif

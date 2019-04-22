@@ -7,8 +7,7 @@ import math
 from pysixd import view_sampler, inout, misc
 from params.dataset_params import get_dataset_params
 from os.path import join
-import linemodLevelup_pybind
-import pose_refine_pybind
+import patch_linemod_pybind
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,11 +29,11 @@ dataset = 'hinterstoisser'
 # dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
-mode = 'render_train'
-# mode = 'test'
+# mode = 'render_train'
+mode = 'test'
 
 dp = get_dataset_params(dataset)
-detector = linemodLevelup_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
+detector = patch_linemod_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
 
 obj_ids = []  # for each obj
 obj_ids_curr = range(1, dp['obj_count'] + 1)
@@ -93,7 +92,7 @@ if mode == 'render_train':
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
-        pose_refiner = pose_refine_pybind.PoseRefine(model_path)
+        pose_refiner = patch_linemod_pybind.PoseRefine(model_path)
         pose_refiner.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
 
         for radius in dep_anchors:
@@ -191,7 +190,7 @@ if mode == 'test':
             scene_info = inout.load_info(dp['scene_info_mpath'].format(scene_id))
             scene_gt = inout.load_gt(dp['scene_gt_mpath'].format(scene_id))
 
-            pose_refiner = pose_refine_pybind.PoseRefine(dp['model_mpath'].format(obj_id_in_scene))
+            pose_refiner = patch_linemod_pybind.PoseRefine(dp['model_mpath'].format(obj_id_in_scene))
 
             template_read_classes = []
             detector.clear_classes()
@@ -244,7 +243,7 @@ if mode == 'test':
                 for radius in dep_anchors:
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
-                dump_matches = True
+                dump_matches = False
                 if dump_matches:
                     # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
                     matches = detector.match([rgb, depth], 70, active_ratio,
@@ -276,15 +275,15 @@ if mode == 'test':
 
                 results_refined = []
                 if len(matches) > 0:
-                    init_poses = linemodLevelup_pybind.matches2poses(matches, detector, matched_poses,
-                                                                     K.astype(np.float32), True, 32, np.pi/6)
+                    init_poses = patch_linemod_pybind.matches2poses(matches, detector, matched_poses,
+                                                                     K.astype(np.float32), 1000)
 
                     # poses_extended = pose_refiner.poses_extend(init_poses)
                     poses_extended = init_poses
                     results_unfiltered = pose_refiner.process_batch(poses_extended, 1)
 
                     # edge hit rate, active ratio, rmse
-                    results_refined = pose_refiner.results_filter(results_unfiltered, active_ratio, active_ratio, 0.005)
+                    results_refined = pose_refiner.results_filter(detector, rgb, results_unfiltered)
 
                 print('candidates size after refine & nms: {}\n'.format(len(results_refined)))
 
@@ -349,7 +348,6 @@ if mode == 'test':
                 # visual = False
                 if visual:
                     cv2.imshow('raw', raw_match_rgb)
-                    cv2.imshow('depth_edge', pose_refiner.scene_dep_edge)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
                     cv2.waitKey(1)

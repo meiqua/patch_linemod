@@ -1,4 +1,5 @@
 #include "linemodLevelup.h"
+#include "pose_refine.h"
 #include <memory>
 #include <iostream>
 #include <assert.h>
@@ -230,6 +231,18 @@ void view_angle(){
 }
 
 int main(){
-    train_test();
+
+    linemodLevelup:: Detector detector(16, {4, 8}, 16);
+
+    string model_path = "/home/meiqua/patch_linemod/public/datasets/hinterstoisser/models/obj_01.ply";
+    PoseRefine refiner(model_path);
+
+    Mat K = (Mat_<float>(3,3) << 572.4114, 0.0, 325.2611,
+             0.0, 573.57043, 242.04899, 0.0, 0.0, 1.0);
+    refiner.set_K_width_height(K, 640, 480);
+
+    cv::Mat rgb;
+    std::vector<cuda_icp::RegistrationResult> results;
+    refiner.results_filter(detector, rgb, results);
     return 0;
 }
