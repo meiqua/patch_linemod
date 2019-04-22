@@ -333,7 +333,7 @@ protected:
         };
         std::vector<Node> nodes;
     };
-    std::vector<Coarse2Fine_tree> templ_tree;
+    std::vector<Coarse2Fine_tree> templ_forest;
 
 
     typedef std::vector<Template> TemplatePyramid;

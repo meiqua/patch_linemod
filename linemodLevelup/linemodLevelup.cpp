@@ -1907,7 +1907,7 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
             while (!bfs_queue.empty()) {
                 auto& node = structure.nodes[bfs_queue.front()];
                 for(int neibor: node.adjs){
-//                    if(node2cluster[neibor] >= 0) continue; // allowing overlapping is better?
+                    if(node2cluster[neibor] >= 0) continue; // allowing overlapping is better?
                     if(is_similar(structure.Ts[current_behalf], structure.Ts[neibor],
                                   level_iter, T_at_level[level_iter], renderer)){
                         current_cluster.push_back(neibor);
@@ -1923,6 +1923,7 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
 
     std::vector<std::map<int, std::vector<int>>> wanted_maps(T_at_level.size());
     std::vector<uint8_t> higher_hit(st_size, 0);
+    std::vector<uint8_t> higher_hit_next(st_size, 0);
     for(int level_iter=T_at_level.size()-1; level_iter>0; level_iter--){
         auto& node2cluster_next = nc_maps[level_iter-1].node2cluster;
         auto& cluster2node = nc_maps[level_iter].cluster2node;
@@ -1945,22 +1946,23 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
         }else{
             for(int cluster_iter=0; cluster_iter<cluster2node.size(); cluster_iter++){
                 if(higher_hit[cluster_iter] == 0) continue;
-                higher_hit[cluster_iter] = 0;  // clear state
 
                 auto& nodes = cluster2node[cluster_iter];
                 for(auto n: nodes){
                     int hited_cluster = node2cluster_next[n];
-                    if(higher_hit[hited_cluster] == 0){
-                        higher_hit[hited_cluster] = 1;
+                    if(higher_hit_next[hited_cluster] == 0){
+                        higher_hit_next[hited_cluster] = 1;
                         int behalf = structure.select_behalf(cluster2node_next[hited_cluster]);
                         wanted[structure.select_behalf(nodes)].push_back(behalf);
                     }
                 }
             }
+            higher_hit = higher_hit_next;
+            std::fill(higher_hit_next.begin(), higher_hit_next.end(), 0);
         }
     }
 
-    templ_tree.resize(wanted_maps.back().size());
+    templ_forest.resize(wanted_maps.back().size());
     std::vector<int> render_id_v; // later we will render & make templates from those id
     std::map<int, int> id2render_idx;
     int last_level_iter = 0;
@@ -1972,8 +1974,8 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
         id2render_idx[render_id] = render_id_v.size();
         render_id_v.push_back(render_id);
 
-        templ_tree[last_level_iter].nodes.resize(1 + m.second.size());
-        auto& child = templ_tree[last_level_iter].nodes[0].child;
+        templ_forest[last_level_iter].nodes.resize(1 + m.second.size());
+        auto& child = templ_forest[last_level_iter].nodes[0].child;
         for(int id_iter=0; id_iter<m.second.size(); id_iter++){
             child.push_back(1 + id_iter);
             int child_render_id = id_level2unique(m.second[id_iter], T_at_level.size()-2);
@@ -1985,26 +1987,27 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
                 id2render_idx[child_render_id] = child_render_idx;
                 render_id_v.push_back(child_render_id);
             }
-            templ_tree[last_level_iter].nodes[1 + id_iter].id = child_render_idx;
+            templ_forest[last_level_iter].nodes[1 + id_iter].id = child_render_idx;
         }
         last_level_iter++;
     }
 
-    for(auto& c2f_tree: templ_tree){
+    // c2f: coarse2fine; templ_forest: one coarsest cluster <---> one tree, to parallel
+    for(auto& c2f_tree: templ_forest){
 
         int curr_level_start_node = 1;
         int next_level_start_node = c2f_tree.nodes.size();
         for(int level = T_at_level.size() - 2; level > 0; level--){
 
-            auto& m = wanted_maps[level];
             for(int node_iter = curr_level_start_node; node_iter<next_level_start_node; node_iter++){
-                std::vector<int> next_level_child_v = m[unique2id(c2f_tree.nodes[node_iter].id)];
+                std::vector<int> next_level_child_v =
+                        wanted_maps[level][unique2id(render_id_v[c2f_tree.nodes[node_iter].id])];
 
                 int curr_tree_size = c2f_tree.nodes.size();
                 c2f_tree.nodes.resize(curr_tree_size + next_level_child_v.size());
 
                 for(int child_iter=0; child_iter<next_level_child_v.size(); child_iter++){
-                    c2f_tree.nodes[curr_tree_size + child_iter].child.push_back(curr_tree_size+child_iter);
+                    c2f_tree.nodes[node_iter].child.push_back(curr_tree_size+child_iter);
                     int child_render_id = id_level2unique(next_level_child_v[child_iter], level-1);
 
                     int child_render_idx;
