@@ -40,7 +40,7 @@ obj_ids_curr = range(1, dp['obj_count'] + 1)
 if obj_ids:
     obj_ids_curr = set(obj_ids_curr).intersection(obj_ids)
 
-scene_ids = [6]  # for each obj
+scene_ids = []  # for each obj
 im_ids = []  # obj's img
 gt_ids = []  # multi obj in one img
 scene_ids_curr = range(1, dp['scene_count'] + 1)

@@ -14,7 +14,7 @@ void Scene_projective::init_Scene_projective_cpu(cv::Mat& scene_depth_, cv::Mat&
         height = scene_depth.rows;
 
         auto& pcd_buffer = scene_buffer.pcd_buffer;
-        auto& normal_buffer = scene_buffer.pcd_buffer;
+        auto& normal_buffer = scene_buffer.normal_buffer;
         auto& edge_buffer = scene_buffer.edge_buffer;
 
         pcd_buffer.clear();
@@ -31,7 +31,7 @@ void Scene_projective::init_Scene_projective_cpu(cv::Mat& scene_depth_, cv::Mat&
         normal_buffer = get_normal(scene_depth, K);
 
         int kernel_size = 2;
-        cv::Mat edge_idx_twist(depth_edge.size(), CV_32S);  // avoid falling to background when query
+        cv::Mat edge_idx_twist(depth_edge.size(), CV_32S, -1);  // avoid falling to background when query
         for(int r=0+kernel_size; r<depth_edge.rows - kernel_size; r++){
             for(int c=0+kernel_size; c<depth_edge.cols - kernel_size; c++){
 

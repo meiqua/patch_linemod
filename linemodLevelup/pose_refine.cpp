@@ -88,7 +88,7 @@ void PoseRefine::set_K_width_height(cv::Mat K, int width, int height)
 std::vector<cuda_icp::RegistrationResult> PoseRefine::process_batch(std::vector<cv::Mat>& init_poses,
                                                                     int down_sample)
 {
-    const bool debug_ = true;
+    const bool debug_ = false;
     const bool record_ = false;
     if(debug_){
         if(record_){

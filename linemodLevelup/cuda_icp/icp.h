@@ -129,17 +129,22 @@ struct thrust__pcd2Ab
 
     }
 
-    __host__ __device__ Vec29f operator()(const Vec3f &src_pcd) const {
+    __host__ __device__ Vec29f operator()(const Vec3f &src_pcd_) const {
         Vec29f result;
         Vec3f dst_pcd, dst_normal; bool valid;
+        auto src_pcd = src_pcd_;
         __scene.query(src_pcd, dst_pcd, dst_normal, valid);
         if(!valid) return result;
         else{
             bool is_edge = (src_pcd.z < 0);
-            // make sure edge & not edge has same weight
-            const float edge_wanted_weight = 0.5f;
+            if(is_edge) src_pcd.z = -src_pcd.z;
+
+            // make sure edge has a proper weight
+            const float edge_wanted_weight = 0.2f;
             float weight = (1-edge_wanted_weight)/(1-__scene.edge_weight);
             if(is_edge) weight = edge_wanted_weight/__scene.edge_weight;
+
+//            float weight = 1; // which is better?
 
             result[28] = weight;  //valid count
             // dot
