@@ -246,13 +246,11 @@ void filter_test(){
 }
 
 void icp_test(){
-    linemodLevelup:: Detector detector(16, {4, 8}, 16);
+    string dataset_prefix = "/home/meiqua/patch_linemod/public/datasets/doumanoglou/";
+    string model_path = dataset_prefix + "models/obj_02.ply";
 
-    string dataset_prefix = "/home/meiqua/patch_linemod/public/datasets/hinterstoisser/";
-    string model_path = dataset_prefix + "models/obj_06.ply";
-
-    Mat rgb = cv::imread(dataset_prefix+"test/06/rgb/"+"0000.png");
-    Mat depth = cv::imread(dataset_prefix+"test/06/depth/" + "0000.png", CV_LOAD_IMAGE_ANYCOLOR | CV_LOAD_IMAGE_ANYDEPTH);
+    Mat rgb = cv::imread(dataset_prefix+"test/02/rgb/0018.png");
+    Mat depth = cv::imread(dataset_prefix+"test/02/depth/0018.png", CV_LOAD_IMAGE_ANYCOLOR | CV_LOAD_IMAGE_ANYDEPTH);
 
     PoseRefine refiner(model_path);
 
@@ -261,9 +259,13 @@ void icp_test(){
     refiner.set_K_width_height(K, 640, 480);
     refiner.set_depth(depth);
 
+    imshow("rgb", refiner.depth_edge);
+    waitKey(0);
+
     std::vector<Mat> init_poses;
     std::vector<cuda_icp::RegistrationResult> results = refiner.process_batch(init_poses, 1);
-    refiner.results_filter(results);
+    auto final = refiner.results_filter(results);
+    cout << final.size();
 }
 
 int main(){

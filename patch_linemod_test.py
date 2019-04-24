@@ -21,12 +21,12 @@ def draw_axis(img, R, t, K):
     img = cv2.line(img, tuple(axisPoints[3].ravel()), tuple(axisPoints[2].ravel()), (0,0,255), 3)
     return img
 
-dataset = 'hinterstoisser'
+# dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-# dataset = 'doumanoglou'
+dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 # mode = 'render_train'
@@ -280,7 +280,10 @@ if mode == 'test':
 
                     view_init = False
                     if view_init:
-                        for i in range(len(init_poses)):
+                        init_top10 = 10
+                        if init_top10 > len(init_poses):
+                            init_top10 = len(init_poses)
+                        for i in range(init_top10):
                             pose = init_poses[i]
                             rgb_local = np.copy(rgb)
                             [depth_local] = pose_refiner.render_depth([pose])
@@ -302,7 +305,7 @@ if mode == 'test':
                     results_unfiltered = pose_refiner.process_batch(poses_extended, 1)
 
                     # edge hit rate, active ratio, rmse
-                    results_refined = pose_refiner.results_filter(results_unfiltered)
+                    results_refined = pose_refiner.results_filter(results_unfiltered, 0.6, 0.005)
 
                 print('candidates size after refine & nms: {}\n'.format(len(results_refined)))
 
