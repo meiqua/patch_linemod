@@ -282,8 +282,25 @@ public:
                              const std::vector<int>& dep_anchors = std::vector<int>(), const int dep_range = 200,
                              const std::vector<cv::Mat>& masks = std::vector<cv::Mat>());
 
-    void build_templ_tree(Pose_structure& structure, PoseRefine& renderer);
+
+
+    struct Coarse2Fine_tree{
+        struct Node{
+            int id;
+            std::vector<int> child;
+        };
+        std::vector<Node> nodes;
+    };
+    struct TemplateStructure{
+        std::vector<Template> templs;
+        std::vector<Coarse2Fine_tree> templ_forest;
+    };
+    TemplateStructure build_templ_structure(Pose_structure& structure, PoseRefine& renderer);
     bool is_similar(cv::Mat& pose1, cv::Mat& pose2, int pyr_level, int stride, PoseRefine& renderer);
+    Template render_templ(cv::Mat& m4f, int level, PoseRefine &renderer);
+    std::map<std::string, TemplateStructure> class_templs_structure;
+
+
 
     std::vector<int> addTemplate(const std::vector<cv::Mat>& sources, const std::string& class_id,
                                  const cv::Mat object_mask = cv::Mat(), const std::vector<int>& dep_anchors = std::vector<int>());
@@ -324,17 +341,6 @@ protected:
     std::vector< cv::Ptr<Modality> > modalities;
     int pyramid_levels;
     std::vector<int> T_at_level;
-
-
-    struct Coarse2Fine_tree{
-        struct Node{
-            int id;
-            std::vector<int> child;
-        };
-        std::vector<Node> nodes;
-    };
-    std::vector<Coarse2Fine_tree> templ_forest;
-
 
     typedef std::vector<Template> TemplatePyramid;
     typedef std::map<std::string, std::vector<TemplatePyramid> > TemplatesMap;

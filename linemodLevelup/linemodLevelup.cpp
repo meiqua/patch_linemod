@@ -1871,10 +1871,14 @@ std::vector<Match> Detector::match(const std::vector<Mat> &sources__, float thre
     return matches_final;
 }
 
-void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
+Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &structure, PoseRefine &renderer)
 {
     assert(structure.Ts.size() > 0 && structure.Ts.size() == structure.nodes.size());
     assert(T_at_level.size() > 1);
+
+    Detector::TemplateStructure templ_structure;
+    auto& templ_forest = templ_structure.templ_forest;
+    auto& templ_v = templ_structure.templs;
 
     int st_size = structure.Ts.size();
 
@@ -1895,7 +1899,7 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
             // new cluster, set current node's cluster to it
             int cur_cluster_idx = cluster2node.size();
             node2cluster[node_iter] = cur_cluster_idx;
-            cluster2node.resize(cluster2node.size() + 1);
+            cluster2node.resize(cur_cluster_idx + 1);
 
             auto& current_cluster = cluster2node[cur_cluster_idx];
             current_cluster.push_back(node_iter);
@@ -1932,30 +1936,36 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
 
         if(level_iter==T_at_level.size()-1){
             for(auto& nodes: cluster2node){
+
+                std::vector<uint8_t> higher_hit_local(st_size, 0);
                 for(auto n: nodes){
                     int hited_cluster = node2cluster_next[n];
-                    if(higher_hit[hited_cluster] == 0){
-                        higher_hit[hited_cluster] = 1;
+                    if(higher_hit_local[hited_cluster] == 0){
+                        higher_hit_local[hited_cluster] = 1;
 
                         int behalf = structure.select_behalf(cluster2node_next[hited_cluster]);
                         wanted[structure.select_behalf(nodes)].push_back(behalf);
                     }
-
                 }
+                for(int hit_iter=0; hit_iter<st_size; hit_iter++)
+                    if(higher_hit_local[hit_iter]>0) higher_hit[hit_iter] = 1;
             }
         }else{
             for(int cluster_iter=0; cluster_iter<cluster2node.size(); cluster_iter++){
                 if(higher_hit[cluster_iter] == 0) continue;
 
                 auto& nodes = cluster2node[cluster_iter];
+                std::vector<uint8_t> higher_hit_local(st_size, 0);
                 for(auto n: nodes){
                     int hited_cluster = node2cluster_next[n];
-                    if(higher_hit_next[hited_cluster] == 0){
-                        higher_hit_next[hited_cluster] = 1;
+                    if(higher_hit_local[hited_cluster] == 0){
+                        higher_hit_local[hited_cluster] = 1;
                         int behalf = structure.select_behalf(cluster2node_next[hited_cluster]);
                         wanted[structure.select_behalf(nodes)].push_back(behalf);
                     }
                 }
+                for(int hit_iter=0; hit_iter<st_size; hit_iter++)
+                    if(higher_hit_local[hit_iter]>0) higher_hit_next[hit_iter] = 1;
             }
             higher_hit = higher_hit_next;
             std::fill(higher_hit_next.begin(), higher_hit_next.end(), 0);
@@ -1992,9 +2002,8 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
         last_level_iter++;
     }
 
-    // c2f: coarse2fine; templ_forest: one coarsest cluster <---> one tree, to parallel
+    // c2f: coarse2fine; templ_forest: one coarsest cluster <---> one tree
     for(auto& c2f_tree: templ_forest){
-
         int curr_level_start_node = 1;
         int next_level_start_node = c2f_tree.nodes.size();
         for(int level = T_at_level.size() - 2; level > 0; level--){
@@ -2025,9 +2034,23 @@ void Detector::build_templ_tree(Pose_structure &structure, PoseRefine &renderer)
             next_level_start_node = c2f_tree.nodes.size();
         }
     }
+
+    templ_v.resize(render_id_v.size());
+    for(int i=0; i<render_id_v.size(); i++){
+        int id = unique2id(render_id_v[i]);
+        int level = unique2level(render_id_v[i]);
+        templ_v[i] = render_templ(structure.Ts[id], level, renderer);
+    }
+
+    return templ_structure;
 }
 
 bool Detector::is_similar(Mat &pose1, Mat &pose2, int pyr_level, int stride, PoseRefine &renderer)
+{
+
+}
+
+Template Detector::render_templ(Mat &m4f, int level, PoseRefine& renderer)
 {
 
 }
