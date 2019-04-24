@@ -222,7 +222,7 @@ class Detector;
 class PoseRefine {
 public:
     cv::Mat scene_depth;
-
+    cv::Mat depth_edge;
     // for rendering
     cv::Mat K;
     int width, height;
@@ -235,22 +235,12 @@ public:
 
     cuda_renderer::Model::mat4x4 proj_mat;
 
-
-#ifdef USE_PROJ
-    #ifdef CUDA_ON
-        ::device_vector_holder<::Vec3f> pcd_buffer, normal_buffer;
-    #else
-        std::vector<::Vec3f> pcd_buffer, normal_buffer;
-    #endif
-    Scene_projective scene;
+#ifdef CUDA_ON
+    Scene_proj_buffer_cuda scene_buffer;
 #else
-    #ifdef CUDA_ON
-        KDTree_cuda kdtree;
-    #else
-        KDTree_cpu kdtree;
-    #endif
-    Scene_nn scene;
+    Scene_proj_buffer_cpu scene_buffer;
 #endif
+Scene_projective scene;
 
     int batch_size = 8;
 
@@ -269,8 +259,7 @@ public:
                                                             int down_sample = 2);
 
     std::vector<cuda_icp::RegistrationResult> results_filter(
-            linemodLevelup::Detector& detector, cv::Mat& rgb,
-            std::vector<cuda_icp::RegistrationResult>& results, float active_thresh = 70,
+            std::vector<cuda_icp::RegistrationResult>& results,
             float fitness_thresh = 0.6f, float rmse_thresh = 0.005f);
 
     std::vector<cv::Mat> render_depth(std::vector<cv::Mat>& init_poses, int down_sample = 1);

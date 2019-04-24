@@ -2642,45 +2642,6 @@ void Detector::writeClasses(const std::string &format) const
         writeClass(class_id, fs);
     }
 }
-
-cv::Mat Detector::make_quantized_rgb(cv::Mat& rgb, int spread_T)
-{
-    auto rgb_quantizer = modalities[0]->process(rgb);
-    cv::Mat temp;
-    rgb_quantizer->quantize(temp);
-
-    cv::Mat quantized_rgb;
-    spread(temp, quantized_rgb, spread_T);
-    return quantized_rgb;
-}
-
-bool Detector::is_responsible(Mat &target, Mat& quantized_rgb, float threshold, float active_ratio)
-{
-    std::vector<Template> templ(1);
-
-    auto quantizer = modalities[0]->process(target);
-    if(!quantizer->extractTemplate(templ[0])) return false;
-    cropTemplates(templ, clusters);
-    std::vector<int> response(templ[0].clusters, 0);
-    std::vector<int> total_count(templ[0].clusters, 0);
-    for(auto& f: templ[0].features){
-        total_count[f.cluster]++;
-        uchar hitted = quantized_rgb.at<uchar>(f.y + templ[0].tl_y, f.x + templ[0].tl_x);
-        uchar res1 = SIMILARITY_LUT[f.label*32 + (hitted & 15)];
-        uchar res2 = SIMILARITY_LUT[f.label*32 + 16 + ((hitted & 240) >> 4)];
-        response[f.cluster] += std::max(res1, res2);
-    }
-    int active_part = 0;
-    for(int i=0; i<response.size(); i++){
-        if(float(response[i])/total_count[i]/4*100 > threshold){
-            active_part ++;
-        }
-    }
-    if(active_part/float(templ[0].clusters) > active_ratio){
-        return true;
-    } else return false;
-}
-
 } // namespace linemodLevelup
 
 std::vector<Mat> poseRefine_adaptor::matches2poses(std::vector<linemodLevelup::Match> &matches,
@@ -2962,7 +2923,7 @@ Mat PoseRefine::get_depth_edge(Mat &depth)
     cv::Mat dst;
     cv::bitwise_or(high_curvature_edge, occ_edge, dst);
 
-    cv::dilate(dst, dst, cv::Mat::ones(5, 5, CV_8U));
+//    cv::dilate(dst, dst, cv::Mat::ones(5, 5, CV_8U));
 
     bool debug_ = false;
     if(debug_){

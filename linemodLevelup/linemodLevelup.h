@@ -329,11 +329,6 @@ public:
                      const std::string& format = "templates_%s.yml.gz");
     void writeClasses(const std::string& format = "templates_%s.yml.gz") const;
     void clear_classes(){class_templates.clear();}
-
-    // for pose refine
-    cv::Mat make_quantized_rgb(cv::Mat& rgb, int spread_T = 2);
-    bool is_responsible(cv::Mat& target, cv::Mat& quantized_rgb, float threshold = 70, float active_ratio = 0.6f);
-
 protected:
 
     int clusters;
@@ -362,7 +357,6 @@ cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 
 namespace poseRefine_adaptor {
-
 std::vector<cv::Mat> matches2poses(std::vector<linemodLevelup::Match>& matches,
                                        linemodLevelup::Detector& detector,
                                        std::vector<cv::Mat>& saved_poses,

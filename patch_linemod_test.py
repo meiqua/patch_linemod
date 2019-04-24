@@ -21,12 +21,12 @@ def draw_axis(img, R, t, K):
     img = cv2.line(img, tuple(axisPoints[3].ravel()), tuple(axisPoints[2].ravel()), (0,0,255), 3)
     return img
 
-# dataset = 'hinterstoisser'
+dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-dataset = 'doumanoglou'
+# dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 # mode = 'render_train'
@@ -40,7 +40,7 @@ obj_ids_curr = range(1, dp['obj_count'] + 1)
 if obj_ids:
     obj_ids_curr = set(obj_ids_curr).intersection(obj_ids)
 
-scene_ids = []  # for each obj
+scene_ids = [6]  # for each obj
 im_ids = []  # obj's img
 gt_ids = []  # multi obj in one img
 scene_ids_curr = range(1, dp['scene_count'] + 1)
@@ -283,7 +283,7 @@ if mode == 'test':
                     results_unfiltered = pose_refiner.process_batch(poses_extended, 1)
 
                     # edge hit rate, active ratio, rmse
-                    results_refined = pose_refiner.results_filter(detector, rgb, results_unfiltered)
+                    results_refined = pose_refiner.results_filter(results_unfiltered)
 
                 print('candidates size after refine & nms: {}\n'.format(len(results_refined)))
 
@@ -350,5 +350,7 @@ if mode == 'test':
                     cv2.imshow('raw', raw_match_rgb)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
+                    cv2.imshow('depth', pose_refiner.view_dep(depth))
+                    cv2.imshow('depth edge', pose_refiner.depth_edge)
                     cv2.waitKey(0)
 print('end line')

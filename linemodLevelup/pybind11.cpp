@@ -71,6 +71,7 @@ PYBIND11_MODULE(patch_linemod_pybind, m) {
                  py::arg("depth") = cv::Mat(), py::arg("K") = cv::Mat())
             .def("view_dep", &PoseRefine::view_dep)
             .def("set_depth", &PoseRefine::set_depth)
+            .def_readwrite("depth_edge", &PoseRefine::depth_edge)
             .def("set_K", &PoseRefine::set_K)
             .def("set_K_width_height", &PoseRefine::set_K_width_height)
             .def("set_max_dist_diff", &PoseRefine::set_max_dist_diff)
@@ -80,7 +81,6 @@ PYBIND11_MODULE(patch_linemod_pybind, m) {
             .def("process_batch", &PoseRefine::process_batch, py::arg("init_poses"),py::arg("down_sample") = 2)
             .def("poses_extend", &PoseRefine::poses_extend, py::arg("init_poses"),
                   py::arg("degree_var") = CV_PI/10)
-            .def("results_filter", &PoseRefine::results_filter, py::arg("detector"),
-                  py::arg("rgb"), py::arg("results"), py::arg("active_thresh") = 70,
+            .def("results_filter", &PoseRefine::results_filter, py::arg("results"),
                   py::arg("fitness_thresh") = 0.6f, py::arg("rmse_thresh") = 0.005f);
 }

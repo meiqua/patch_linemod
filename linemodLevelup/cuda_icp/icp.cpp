@@ -101,6 +101,14 @@ std::vector<Vec3f> depth2cloud_cpu(T* depth, uint32_t width, uint32_t height, Ma
             float x_pcd = (x + tl_x - K[0][2])/K[0][0]*z_pcd;
             float y_pcd = (y + tl_y - K[1][2])/K[1][1]*z_pcd;
 
+            // check if it's border
+            int left = 0; if(x>0) left = depth[(x-1)*stride + y*stride*width];
+            int right = 0; if(x<width/stride-1) right = depth[(x+1)*stride + y*stride*width];
+            int top = 0; if(y>0) top = depth[x*stride + (y-1)*stride*width];
+            int bottom = 0; if(y<height/stride-1) bottom = depth[x*stride + (y+1)*stride*width];
+            if(left == 0 || right == 0 ||
+                    top==0 || bottom == 0) z_pcd = -z_pcd;
+
             cloud[mask[idx_mask]] = {x_pcd, y_pcd, z_pcd};
         }
     }
@@ -119,6 +127,13 @@ RegistrationResult ICP_Point2Plane_cpu(std::vector<Vec3f> &model_pcd, Scene scen
 {
     RegistrationResult result;
     RegistrationResult backup;
+
+    int edge_count = 0;
+//#pragma omp parallel for reduction(+: edge_count)
+    for(int i=0; i<model_pcd.size(); i++){
+        if(model_pcd[i].z < 0) edge_count += 1;
+    }
+    scene.edge_weight = float(edge_count)/model_pcd.size();
 
     std::vector<float> A_host(36, 0);
     std::vector<float> b_host(6, 0);
@@ -189,128 +204,6 @@ RegistrationResult ICP_Point2Plane_cpu(std::vector<Vec3f> &model_pcd, Scene scen
 }
 
 template RegistrationResult ICP_Point2Plane_cpu(std::vector<Vec3f> &model_pcd, Scene_projective scene,
-const ICPConvergenceCriteria criteria);
-template RegistrationResult ICP_Point2Plane_cpu(std::vector<Vec3f> &model_pcd, Scene_nn scene,
-const ICPConvergenceCriteria criteria);
-
-
-/// !!!!!!!!!!!!!!!!!!!!! legacy
-// just for test and comparation
-template<class Scene>
-RegistrationResult ICP_Point2Plane_cpu_global_memory_version(std::vector<Vec3f> &model_pcd, Scene scene,
-                                       const ICPConvergenceCriteria criteria)
-{
-    RegistrationResult result;
-    RegistrationResult backup;
-
-    // buffer can make pcd handling indenpendent
-    // may waste memory, but make it easy to parallel
-    Eigen::Matrix<float, Eigen::Dynamic, 6> A_buffer(model_pcd.size(), 6); A_buffer.setZero();
-    Eigen::Matrix<float, Eigen::Dynamic, 1> b_buffer(model_pcd.size(), 1); b_buffer.setZero();
-
-    std::vector<uint32_t> valid_buffer(model_pcd.size(), 0);
-
-    // use one extra turn
-    for(uint32_t iter=0; iter<=criteria.max_iteration_; iter++){
-
-#pragma omp parallel for
-        for(uint32_t i = 0; i<model_pcd.size(); i++){
-            const auto& src_pcd = model_pcd[i];
-
-            Vec3f dst_pcd, dst_normal; bool valid;
-            scene.query(src_pcd, dst_pcd, dst_normal, valid);
-            if(valid){
-
-                // dot
-                b_buffer(i) = (dst_pcd - src_pcd).x * dst_normal.x +
-                              (dst_pcd - src_pcd).y * dst_normal.y +
-                              (dst_pcd - src_pcd).z * dst_normal.z;
-
-                // cross
-                A_buffer(i, 0) = dst_normal.z*src_pcd.y - dst_normal.y*src_pcd.z;
-                A_buffer(i, 1) = dst_normal.x*src_pcd.z - dst_normal.z*src_pcd.x;
-                A_buffer(i, 2) = dst_normal.y*src_pcd.x - dst_normal.x*src_pcd.y;
-
-                A_buffer(i, 3) = dst_normal.x;
-                A_buffer(i, 4) = dst_normal.y;
-                A_buffer(i, 5) = dst_normal.z;
-
-                valid_buffer[i] = 1;
-            }else{
-                b_buffer(i) = 0;
-
-                A_buffer(i, 0) = 0;
-                A_buffer(i, 1) = 0;
-                A_buffer(i, 2) = 0;
-                A_buffer(i, 3) = 0;
-                A_buffer(i, 4) = 0;
-                A_buffer(i, 5) = 0;
-
-                valid_buffer[i] = 0;
-            }
-            // else: invalid is 0 in A & b, ATA ATb means adding 0,
-            // so don't need to consider valid_buffer, just multi matrix
-        }
-
-        uint32_t count = 0;
-        float total_error = 0;
-#pragma omp parallel for reduction(+:count, total_error)
-        for(uint32_t i=0; i<model_pcd.size(); i++){
-            count += valid_buffer[i];
-            total_error += (b_buffer(i)*b_buffer(i));
-        }
-
-        backup = result;
-
-        if(count == 0) return result;  // avoid divid 0
-
-        result.fitness_ = float(count) / model_pcd.size();
-        result.inlier_rmse_ = std::sqrt(total_error / count);
-
-//        {
-//            std::cout << " --- cpu --- " << iter << " --- cpu ---" << std::endl;
-//            std::cout << "total error: " << total_error << std::endl;
-//            std::cout << "result.fitness_: " << result.fitness_ << std::endl;
-//            std::cout << "result.inlier_rmse_: " << result.inlier_rmse_ << std::endl;
-//            std::cout << " --- cpu --- " << iter << " --- cpu ---" << std::endl << std::endl;
-//        }
-
-        // last extra iter, just compute fitness & mse
-        if(iter == criteria.max_iteration_) return result;
-
-        if(std::abs(result.fitness_ - backup.fitness_) < criteria.relative_fitness_ &&
-           std::abs(result.inlier_rmse_ - backup.inlier_rmse_) < criteria.relative_rmse_){
-            return result;
-        }
-
-        Eigen::Matrix<float, 6, 6> A = A_buffer.transpose()*A_buffer;
-        Eigen::Matrix<float, 6, 1> b = A_buffer.transpose()*b_buffer;
-
-//        std::cout << "~~~~~~~~A~~~~~~" << std::endl;
-//        std::cout << A;
-//        std::cout << "\n~~~~~~~~~~~~~~\n" << std::endl;
-
-//        std::cout << "~~~~~~~~b~~~~~~" << std::endl;
-//        std::cout << b;
-//        std::cout << "\n~~~~~~~~~~~~~~\n" << std::endl;
-
-        Mat4x4f extrinsic = eigen_slover_666(A.data(), b.data());
-
-//        std::cout << "~~extrinsic~~~~" << std::endl;
-//        std::cout << extrinsic;
-//        std::cout << "\n~~~~~~~~~~~~~~\n" << std::endl;
-
-        transform_pcd(model_pcd, extrinsic);
-        result.transformation_ = extrinsic * result.transformation_;
-    }
-
-    // never arrive here
-    return result;
-}
-
-template RegistrationResult ICP_Point2Plane_cpu_global_memory_version(std::vector<Vec3f> &model_pcd, Scene_projective scene,
-const ICPConvergenceCriteria criteria);
-template RegistrationResult ICP_Point2Plane_cpu_global_memory_version(std::vector<Vec3f> &model_pcd, Scene_nn scene,
 const ICPConvergenceCriteria criteria);
 }
 

@@ -230,11 +230,10 @@ void view_angle(){
     cv::waitKey(0);
 }
 
-int main(){
-
+void filter_test(){
     linemodLevelup:: Detector detector(16, {4, 8}, 16);
 
-    string model_path = "/home/meiqua/patch_linemod/public/datasets/hinterstoisser/models/obj_01.ply";
+    string model_path = "/home/meiqua/patch_linemod/public/datasets/hinterstoisser/models/obj_06.ply";
     PoseRefine refiner(model_path);
 
     Mat K = (Mat_<float>(3,3) << 572.4114, 0.0, 325.2611,
@@ -243,6 +242,32 @@ int main(){
 
     cv::Mat rgb;
     std::vector<cuda_icp::RegistrationResult> results;
-    refiner.results_filter(detector, rgb, results);
+    refiner.results_filter(results);
+}
+
+void icp_test(){
+    linemodLevelup:: Detector detector(16, {4, 8}, 16);
+
+    string dataset_prefix = "/home/meiqua/patch_linemod/public/datasets/hinterstoisser/";
+    string model_path = dataset_prefix + "models/obj_06.ply";
+
+    Mat rgb = cv::imread(dataset_prefix+"test/06/rgb/"+"0000.png");
+    Mat depth = cv::imread(dataset_prefix+"test/06/depth/" + "0000.png", CV_LOAD_IMAGE_ANYCOLOR | CV_LOAD_IMAGE_ANYDEPTH);
+
+    PoseRefine refiner(model_path);
+
+    Mat K = (Mat_<float>(3,3) << 572.4114, 0.0, 325.2611,
+             0.0, 573.57043, 242.04899, 0.0, 0.0, 1.0);
+    refiner.set_K_width_height(K, 640, 480);
+    refiner.set_depth(depth);
+
+    std::vector<Mat> init_poses;
+    std::vector<cuda_icp::RegistrationResult> results = refiner.process_batch(init_poses, 1);
+    refiner.results_filter(results);
+}
+
+int main(){
+    icp_test();
+
     return 0;
 }

@@ -66,12 +66,8 @@ void PoseRefine::set_depth(cv::Mat depth)
     height = depth.rows;
     proj_mat = cuda_renderer::compute_proj(K, width, height);
 
-#ifdef USE_PROJ
-    scene.init(scene_depth, *reinterpret_cast<Mat3x3f*>(K.data), pcd_buffer, normal_buffer);
-#else
-    scene.init(scene_depth, *reinterpret_cast<Mat3x3f*>(K.data), kdtree);
-#endif
-
+    depth_edge = get_depth_edge(scene_depth);
+    scene.init(scene_depth, depth_edge, *reinterpret_cast<Mat3x3f*>(K.data), scene_buffer);
 }
 
 void PoseRefine::set_K(cv::Mat K)
@@ -92,19 +88,22 @@ void PoseRefine::set_K_width_height(cv::Mat K, int width, int height)
 std::vector<cuda_icp::RegistrationResult> PoseRefine::process_batch(std::vector<cv::Mat>& init_poses,
                                                                     int down_sample)
 {
-    const bool debug_ = false;
+    const bool debug_ = true;
     const bool record_ = false;
     if(debug_){
         if(record_){
             cv::FileStorage fs("/home/meiqua/dump_process_batch.yml", cv::FileStorage::WRITE);
+            fs << "down_sample" << down_sample;
             fs << "init_poses" << "[";
             for(auto& r: init_poses){
                 fs << r;
             }
             fs << "]";
+
         }
         else{
             cv::FileStorage fs("/home/meiqua/dump_process_batch.yml", cv::FileStorage::READ);
+            fs["down_sample"] >> down_sample;
             cv::FileNode results_fn = fs["init_poses"];
             init_poses.clear();
             init_poses.resize(results_fn.size());
@@ -145,7 +144,6 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::process_batch(std::vector<
 
     auto icp_batch = [&](int i){
         // directly down sample by viewport
-
         auto depths = cuda_renderer::render(tris, mat4_v, width_local, height_local, proj_mat);
 
         // cuda per thread stream
@@ -157,16 +155,7 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::process_batch(std::vector<
             auto pcd1_cuda = cuda_icp::depth2cloud(depths.data() + j*width_local*height_local,
                                                    width_local, height_local, K_icp);
 
-
-//            std::cout << "init: " << i << std::endl;
-//            helper::view_pcd(pcd1_cpu, pcd_buffer);
             result_poses[j+i] = cuda_icp::ICP_Point2Plane(pcd1_cuda, scene, criteria);
-
-//            if(result_poses[j+i].fitness_ > 0.7f && !record_){
-//                std::cout << "finally fitness_: " << result_poses[j+i].fitness_ << std::endl;
-//                std::cout << "finally inlier_rmse_: " << result_poses[j+i].inlier_rmse_ << std::endl;
-//                helper::view_pcd(pcd1_cpu, pcd_buffer);
-//            }
 
             temp = result_poses[j+i].transformation_ * temp;
             result_poses[j + i].transformation_ = to_mm(temp);
@@ -189,24 +178,8 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::process_batch(std::vector<
     return result_poses;
 }
 
-static bool edge_hit_success(cv::Mat& mask_edge, cv::Rect& bbox,
-                             cv::Mat depth_edge, float fitness){
-    cv::Mat hit_edge;
-    cv::Mat mask_roi = mask_edge(bbox);
-    cv::bitwise_and(mask_roi, depth_edge(bbox), hit_edge);
-
-    int mask_edge_count = cv::countNonZero(mask_roi);
-    if(mask_edge_count==0) return false;
-
-    float hit_rate = float(cv::countNonZero(hit_edge))/mask_edge_count;
-    if(hit_rate > fitness) return true;
-    else return false;
-}
-
 std::vector<cuda_icp::RegistrationResult> PoseRefine::results_filter(
-        linemodLevelup::Detector& detector, cv::Mat& rgb,
-        std::vector<cuda_icp::RegistrationResult> &results,
-        float active_thresh, float fitness_thresh, float rmse_thresh)
+        std::vector<cuda_icp::RegistrationResult> &results, float fitness_thresh, float rmse_thresh)
 {
     const bool debug_ = false;
     const bool record_ = false;
@@ -229,7 +202,6 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::results_filter(
                 fs << "}";
             }
             fs << "]";
-            fs << "rgb" << rgb;
         }
         else{
             cv::FileStorage fs("/home/meiqua/dump.yml", cv::FileStorage::READ);
@@ -252,7 +224,6 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::results_filter(
                     }
                 }
             }
-            fs["rgb"] >> rgb;
         }
     }
 
@@ -280,16 +251,19 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::results_filter(
 
     std::vector<Result_bbox> filtered2;
 
-    auto depth_edge = get_depth_edge(scene_depth);
-//    auto quantized = detector.make_quantized_rgb(depth_edge, 4);
-    auto depths = cuda_renderer::render_host(tris, mat4_v, width, height, proj_mat);
+    const int down_sample = 2;
+    assert(width%down_sample==0 && height%down_sample==0);
+    const int width_local = width/down_sample;
+    const int height_local = height/down_sample;
+
+    auto depths = cuda_renderer::render_host(tris, mat4_v, width_local, height_local, proj_mat);
 
 #pragma omp declare reduction (merge : std::vector<Result_bbox> : \
     omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
 
 #pragma omp parallel for reduction(merge: filtered2)
     for(int i=0; i<filtered.size(); i++){
-        cv::Mat depth_int(height, width, CV_32SC1, depths.data() + i*height*width);
+        cv::Mat depth_int(height_local, width_local, CV_32SC1, depths.data() + i*width_local*height_local);
         cv::Mat mask = depth_int > 0;
 
         cv::Mat mask_erode;
@@ -301,15 +275,11 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::results_filter(
         cv::findNonZero(mask_edge, Points);
         auto bbox = boundingRect(Points);
 
-//        bool success = detector.is_responsible(mask_edge, quantized, active_thresh, fitness_thresh);
-        bool success = edge_hit_success(mask_edge, bbox, depth_edge, fitness_thresh);
-        if(success){
-            Result_bbox temp;
-            temp.result = filtered[i];
-            temp.bbox = bbox;
-            temp.score =  1/(10 * filtered[i].inlier_rmse_);
-            filtered2.push_back(temp);
-        }
+        Result_bbox temp;
+        temp.result = filtered[i];
+        temp.bbox = bbox;
+        temp.score =  1/(10 * filtered[i].inlier_rmse_);
+        filtered2.push_back(temp);
     }
 
     // third pass, nms

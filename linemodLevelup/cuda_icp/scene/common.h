@@ -38,6 +38,7 @@ public:
 };
 
 extern template class device_vector_holder<Vec3f>;
+extern template class device_vector_holder<int>;
 
 struct Node_kdtree;
 extern template class device_vector_holder<Node_kdtree>;
