@@ -128,13 +128,6 @@ RegistrationResult ICP_Point2Plane_cpu(std::vector<Vec3f> &model_pcd, Scene scen
     RegistrationResult result;
     RegistrationResult backup;
 
-    int edge_count = 0;
-//#pragma omp parallel for reduction(+: edge_count)
-    for(int i=0; i<model_pcd.size(); i++){
-        if(model_pcd[i].z < 0) edge_count += 1;
-    }
-    scene.edge_weight = float(edge_count)/model_pcd.size();
-
     std::vector<float> A_host(36, 0);
     std::vector<float> b_host(6, 0);
     thrust__pcd2Ab<Scene> trasnformer(scene);

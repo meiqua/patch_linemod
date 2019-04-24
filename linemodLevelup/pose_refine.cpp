@@ -67,7 +67,7 @@ void PoseRefine::set_depth(cv::Mat depth)
     proj_mat = cuda_renderer::compute_proj(K, width, height);
 
     depth_edge = get_depth_edge(scene_depth);
-    scene.init(scene_depth, depth_edge, *reinterpret_cast<Mat3x3f*>(K.data), scene_buffer);
+    scene.init(scene_depth, *reinterpret_cast<Mat3x3f*>(K.data), scene_buffer);
 }
 
 void PoseRefine::set_K(cv::Mat K)
@@ -255,6 +255,8 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::results_filter(
     assert(width%down_sample==0 && height%down_sample==0);
     const int width_local = width/down_sample;
     const int height_local = height/down_sample;
+    cv::Mat depth_edge_local;
+    cv::resize(depth_edge, depth_edge_local, {width_local, height_local}, 0, 0, CV_INTER_NN);
 
     auto depths = cuda_renderer::render_host(tris, mat4_v, width_local, height_local, proj_mat);
 
@@ -274,6 +276,15 @@ std::vector<cuda_icp::RegistrationResult> PoseRefine::results_filter(
         cv::Mat Points;
         cv::findNonZero(mask_edge, Points);
         auto bbox = boundingRect(Points);
+
+        cv::Mat hit_edge;
+        cv::bitwise_and(mask_edge(bbox), depth_edge_local(bbox), hit_edge);
+
+        int mask_edge_count = cv::countNonZero(mask_edge(bbox));
+        if(mask_edge_count==0) continue;
+
+        float hit_rate = float(cv::countNonZero(hit_edge))/mask_edge_count;
+        if(hit_rate < fitness_thresh) continue;
 
         Result_bbox temp;
         temp.result = filtered[i];

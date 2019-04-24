@@ -2923,7 +2923,7 @@ Mat PoseRefine::get_depth_edge(Mat &depth)
     cv::Mat dst;
     cv::bitwise_or(high_curvature_edge, occ_edge, dst);
 
-//    cv::dilate(dst, dst, cv::Mat::ones(5, 5, CV_8U));
+    cv::dilate(dst, dst, cv::Mat::ones(5, 5, CV_8U));
 
     bool debug_ = false;
     if(debug_){

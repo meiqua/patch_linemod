@@ -278,6 +278,25 @@ if mode == 'test':
                     init_poses = patch_linemod_pybind.matches2poses(matches, detector, matched_poses,
                                                                      K.astype(np.float32), 1000)
 
+                    view_init = False
+                    if view_init:
+                        for i in range(len(init_poses)):
+                            pose = init_poses[i]
+                            rgb_local = np.copy(rgb)
+                            [depth_local] = pose_refiner.render_depth([pose])
+                            depth_view = pose_refiner.view_dep(depth_local)
+                            mask = depth_local > 0
+                            mask = mask.astype(np.uint8)
+                            rgb_mask = np.dstack([mask] * 3)
+                            rgb_local = rgb_local * (1 - rgb_mask) + depth_view * rgb_mask
+
+                            templ = detector.getTemplates(matches[i].class_id, matches[i].template_id)
+                            cv2.rectangle(rgb_local, (matches[i].x, matches[i].y),
+                                          (matches[i].x + templ[0].width, matches[i].y + templ[0].height),
+                                          (0, 255, 0), 2)
+                            cv2.imshow("init", rgb_local)
+                            cv2.waitKey(0)
+
                     # poses_extended = pose_refiner.poses_extend(init_poses)
                     poses_extended = init_poses
                     results_unfiltered = pose_refiner.process_batch(poses_extended, 1)
@@ -352,5 +371,5 @@ if mode == 'test':
                     cv2.imshow('rgb_render', render_rgb)
                     cv2.imshow('depth', pose_refiner.view_dep(depth))
                     cv2.imshow('depth edge', pose_refiner.depth_edge)
-                    cv2.waitKey(0)
+                    cv2.waitKey(1)
 print('end line')

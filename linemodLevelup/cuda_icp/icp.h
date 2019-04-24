@@ -129,36 +129,23 @@ struct thrust__pcd2Ab
 
     }
 
-    __host__ __device__ Vec29f operator()(const Vec3f &src_pcd_) const {
+    __host__ __device__ Vec29f operator()(const Vec3f &src_pcd) const {
         Vec29f result;
         Vec3f dst_pcd, dst_normal; bool valid;
-        auto src_pcd = src_pcd_;
         __scene.query(src_pcd, dst_pcd, dst_normal, valid);
         if(!valid) return result;
         else{
-            bool is_edge = (src_pcd.z < 0);
-            if(is_edge) src_pcd.z = -src_pcd.z;
-
-            // make sure edge has a proper weight
-            const float edge_wanted_weight = 0.2f;
-            float weight = (1-edge_wanted_weight)/(1-__scene.edge_weight);
-            if(is_edge) weight = edge_wanted_weight/__scene.edge_weight;
-
-//            float weight = 1; // which is better?
-
-            result[28] = weight;  //valid count
+            result[28] = 1;  //valid count
             // dot
             float b_temp = (dst_pcd - src_pcd).x * dst_normal.x +
                           (dst_pcd - src_pcd).y * dst_normal.y +
                           (dst_pcd - src_pcd).z * dst_normal.z;
-            b_temp *= weight;
 
             // according to https://github.com/intel-isl/Open3D/issues/874#issuecomment-476747366
             // this is better than pow2(t_temp)
             result[27] = pow2((dst_pcd - src_pcd).x) +
                     pow2((dst_pcd - src_pcd).y) +
                     pow2((dst_pcd - src_pcd).z); // mse
-            result[27] *= weight;
 
             // cross
             float A_temp[6];
@@ -169,13 +156,6 @@ struct thrust__pcd2Ab
             A_temp[3] = dst_normal.x;
             A_temp[4] = dst_normal.y;
             A_temp[5] = dst_normal.z;
-
-            A_temp[0] *= weight;
-            A_temp[1] *= weight;
-            A_temp[2] *= weight;
-            A_temp[3] *= weight;
-            A_temp[4] *= weight;
-            A_temp[5] *= weight;
 
             // ATA lower
             // 0  x  x  x  x  x
@@ -314,14 +294,6 @@ struct thrust__plus{
         return in1 + in2;
     }
 };
-
-struct thrust__v3f2int{
-    __host__ __device__ int operator()(const Vec3f &src_pcd) const {
-        if(src_pcd.z < 0) return 1;
-        else return 0;
-    }
-};
-
 }
 
 

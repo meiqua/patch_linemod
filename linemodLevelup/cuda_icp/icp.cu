@@ -40,12 +40,6 @@ RegistrationResult ICP_Point2Plane_cuda(device_vector_holder<Vec3f> &model_pcd, 
     const uint32_t threadsPerBlock = 256;
     const uint32_t numBlocks = (model_pcd.size() + threadsPerBlock - 1)/threadsPerBlock;
 
-    int edge_count = thrust::transform_reduce(thrust::cuda::par.on(cudaStreamPerThread),
-                                                model_pcd.begin_thr(), model_pcd.end_thr(),
-                                                    thrust__v3f2int(), int(0), thrust::plus<int>());
-    cudaStreamSynchronize(cudaStreamPerThread);
-    scene.edge_weight = float(edge_count)/model_pcd.size();
-
     for(uint32_t iter=0; iter<= criteria.max_iteration_; iter++){
 
         Vec29f Ab_tight;
@@ -116,13 +110,10 @@ __global__ void depth2mask(T* depth, uint32_t* mask, uint32_t width, uint32_t he
     if(depth[x*stride + y*stride*width] > 0) mask[x + y*width] = 1;
 }
 
-static const int BLOCK_DIM_X = 16;
-static const int BLOCK_DIM_Y = 16;
 
 template <class T>
 __global__ void depth2cloud(T* depth, Vec3f* pcd, uint32_t width, uint32_t height, uint32_t* scan, Mat3x3f K,
                           uint32_t stride, uint32_t tl_x, uint32_t tl_y){
-    __shared__ uint32_t block_buffer[BLOCK_DIM_X + 2][BLOCK_DIM_Y + 2]; // +2: tile & border
 
     uint32_t x = blockIdx.x*blockDim.x + threadIdx.x;
     uint32_t y = blockIdx.y*blockDim.y + threadIdx.y;
@@ -132,39 +123,9 @@ __global__ void depth2cloud(T* depth, Vec3f* pcd, uint32_t width, uint32_t heigh
     uint32_t index_mask = x + y*width;
     uint32_t idx_depth = x*stride + y*stride*width;
 
-    // load tile & border
-    block_buffer[threadIdx.x + 1][threadIdx.y + 1] = depth[idx_depth];
-    if(threadIdx.x == 0){
-        if(x > 0) block_buffer[threadIdx.x][threadIdx.y + 1] = depth[(x-1)*stride + y*stride*width];
-        else block_buffer[threadIdx.x][threadIdx.y + 1] = 0;
-    }else if(threadIdx.x == blockDim.x - 1){
-        if(x < width/stride - 1)
-            block_buffer[threadIdx.x + 2][threadIdx.y + 1] = depth[(x+1)*stride + y*stride*width];
-        else block_buffer[threadIdx.x + 2][threadIdx.y + 1] = 0;
-    }
-
-    if(threadIdx.y == 0){
-        if(y > 0) block_buffer[threadIdx.x + 1][threadIdx.y] = depth[x*stride + (y-1)*stride*width];
-        else block_buffer[threadIdx.x + 1][threadIdx.y] = 0;
-    }else if(threadIdx.y == blockDim.y - 1){
-        if(y < height/stride - 1)
-            block_buffer[threadIdx.x + 1][threadIdx.y + 2] = depth[x*stride + (y+1)*stride*width];
-        else block_buffer[threadIdx.x + 1][threadIdx.y + 2] = 0;
-    }
-    __syncthreads();
-
-    if(block_buffer[threadIdx.x + 1][threadIdx.y + 1] <= 0) return;
-
     float z_pcd = depth[idx_depth]/1000.0f;
     float x_pcd = (x + tl_x - K[0][2])/K[0][0]*z_pcd;
     float y_pcd = (y + tl_y - K[1][2])/K[1][1]*z_pcd;
-
-    if(block_buffer[threadIdx.x + 2][threadIdx.y + 1] <=0 ||
-            block_buffer[threadIdx.x][threadIdx.y + 1] <=0 ||
-            block_buffer[threadIdx.x + 1][threadIdx.y + 2] <=0 ||
-            block_buffer[threadIdx.x + 1][threadIdx.y] <=0){
-        z_pcd = -z_pcd; // indicate it's a border
-    }
 
     pcd[scan[index_mask]] = {x_pcd, y_pcd, z_pcd};
 }
@@ -176,7 +137,7 @@ device_vector_holder<Vec3f> depth2cloud_cuda(T *depth, uint32_t width, uint32_t 
     thrust::device_vector<uint32_t> mask(width*height/stride/stride, 0);
     uint32_t* mask_ptr = thrust::raw_pointer_cast(mask.data());
 
-    const dim3 threadsPerBlock(BLOCK_DIM_X, BLOCK_DIM_Y);
+    const dim3 threadsPerBlock(16, 16);
     dim3 numBlocks_stride((width/stride + 15)/16, (height/stride + 15)/16);
     depth2mask<<<numBlocks_stride, threadsPerBlock>>>(depth, mask_ptr, width, height, stride);
 

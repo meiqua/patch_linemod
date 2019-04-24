@@ -35,7 +35,6 @@ device_vector_holder<T>::device_vector_holder(size_t size_){
 }
 
 template class device_vector_holder<Vec3f>;
-template class device_vector_holder<int>;
 
 #include "pcd_scene/pcd_scene.h"
 template class device_vector_holder<Node_kdtree>;
