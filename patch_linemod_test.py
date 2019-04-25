@@ -5,14 +5,10 @@ import numpy as np
 import cv2
 import math
 from pysixd import view_sampler, inout, misc
-from pysixd.renderer import render
 from params.dataset_params import get_dataset_params
 from os.path import join
 import copy
-import linemodLevelup_pybind
-import pose_refine_pybind
-
-from pysixd import renderer
+import patch_linemod_pybind
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -55,19 +51,19 @@ def nms(dets, thresh):
 
     return keep
 
-dataset = 'hinterstoisser'
+# dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-# dataset = 'doumanoglou'
+dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 # mode = 'render_train'
 mode = 'test'
 
 dp = get_dataset_params(dataset)
-detector = linemodLevelup_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
+detector = patch_linemod_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
 
 obj_ids = []  # for each obj
 obj_ids_curr = range(1, dp['obj_count'] + 1)
@@ -126,7 +122,7 @@ if mode == 'render_train':
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
-        pose_renderer = pose_refine_pybind.PoseRefine(model_path)
+        pose_renderer = patch_linemod_pybind.PoseRenderer(model_path)
         pose_renderer.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
 
         for radius in dep_anchors:
@@ -182,7 +178,7 @@ if mode == 'render_train':
     print('train time: {}\n'.format(elapsed_time))
 
 if mode == 'test':
-    pose_refiner = linemodLevelup_pybind.poseRefine()
+    pose_refiner = patch_linemod_pybind.poseRefine()
 
     im_size = dp['test_im_size']
     shape = (im_size[1], im_size[0])
@@ -214,7 +210,7 @@ if mode == 'test':
 
             model_path = dp['model_mpath'].format(obj_id_in_scene)
             # width height model_path
-            pose_renderer = pose_refine_pybind.PoseRefine(model_path)
+            pose_renderer = patch_linemod_pybind.PoseRenderer(model_path)
             pose_renderer.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
 
             template_read_classes = []

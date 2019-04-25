@@ -2,9 +2,10 @@
 #include <pybind11/stl.h>
 #include "np2mat/ndarray_converter.h"
 #include "linemodLevelup.h"
+#include "pose_renderer.h"
 namespace py = pybind11;
 
-PYBIND11_MODULE(linemodLevelup_pybind, m) {
+PYBIND11_MODULE(patch_linemod_pybind, m) {
     NDArrayConverter::init_numpy();
 
     py::class_<poseRefine>(m, "poseRefine")
@@ -14,6 +15,15 @@ PYBIND11_MODULE(linemodLevelup_pybind, m) {
         .def_readwrite("fitness",&poseRefine::fitness)
         .def("get_depth_edge", &poseRefine::get_depth_edge)
         .def("process", &poseRefine::process);
+
+    py::class_<PoseRenderer>(m, "PoseRenderer")
+            .def(py::init<std::string, cv::Mat, cv::Mat>(), py::arg("model_path"),
+                 py::arg("depth") = cv::Mat(), py::arg("K") = cv::Mat())
+            .def("view_dep", &PoseRenderer::view_dep)
+            .def("set_K_width_height", &PoseRenderer::set_K_width_height)
+            .def("render_depth", &PoseRenderer::render_depth, py::arg("init_poses"), py::arg("down_sample") = 1)
+            .def("render_mask", &PoseRenderer::render_mask, py::arg("init_poses"), py::arg("down_sample") = 1)
+            .def("render_depth_mask", &PoseRenderer::render_depth_mask, py::arg("init_poses"), py::arg("down_sample") = 1);
 
     py::class_<linemodLevelup::Match>(m,"Match")
             .def(py::init<>())
