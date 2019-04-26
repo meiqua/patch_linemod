@@ -51,12 +51,12 @@ def nms(dets, thresh):
 
     return keep
 
-# dataset = 'hinterstoisser'
+dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-dataset = 'doumanoglou'
+# dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 # mode = 'render_train'
@@ -303,6 +303,7 @@ if mode == 'test':
                     mat_view = np.eye(4, dtype=np.float32)
                     mat_view[:3, :3] = R_match
                     mat_view[:3, 3] = t_match.squeeze()
+
                     [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)])
 
                     icp_start = time.time()
@@ -311,6 +312,7 @@ if mode == 'test':
                                        K.astype(np.float32), R_match.astype(np.float32),
                                        t_match.astype(np.float32)
                                        , match.x, match.y, 0.01)
+
                     icp_time += (time.time() - icp_start)
 
                     if pose_refiner.fitness < active_ratio or pose_refiner.inlier_rmse > 0.01:
@@ -334,8 +336,6 @@ if mode == 'test':
                     edge_hit = cv2.bitwise_and(model_dep_edge, depth_edge)
 
                     hit_rate = cv2.countNonZero(edge_hit) / cv2.countNonZero(model_dep_edge)
-
-                    # print('after refine avg_dist: {}'.format(avg_dist))
                     if hit_rate < active_ratio:
                         continue
 

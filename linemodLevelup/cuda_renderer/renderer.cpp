@@ -212,9 +212,9 @@ void rasterization(const Model::Triangle dev_tri, Model::float3 last_row,
     size_t real_width = width;
     if(roi.width > 0 && roi.height > 0){  // depth will be flipped
         clamp_min[0] = roi.x;
-        clamp_min[1] = height - (roi.y + roi.height - 1);
+        clamp_min[1] = height-1 - (roi.y + roi.height - 1);
         clamp_max[0] = (roi.x + roi.width) - 1;
-        clamp_max[1] = height - roi.y;
+        clamp_max[1] = height-1 - roi.y;
         real_width = roi.width;
     }
 
@@ -244,8 +244,8 @@ void rasterization(const Model::Triangle dev_tri, Model::float3 last_row,
             float frag_depth = (bc_screen.x + bc_screen.y + bc_screen.z)
                     /(bc_over_z.x + bc_over_z.y + bc_over_z.z);
 
-            size_t x_to_write = P[0] + roi.x;
-            size_t y_to_write = height - P[1] - roi.y;
+            size_t x_to_write = (P[0] + roi.x);
+            size_t y_to_write = (height - 1 - P[1] - roi.y);
 
             int32_t depth = int32_t(frag_depth/**1000*/ + 0.5f);
             int32_t& depth_to_write = depth_entry[x_to_write+y_to_write*real_width];
@@ -310,7 +310,7 @@ std::vector<cv::Mat> cuda_renderer::raw2depth_uint16_cpu(std::vector<int32_t> &r
 
     for(size_t i=0; i<pose_size; i++){
         for(int r=0; r<height; r++){
-            for(int c=0; c<height; c++){
+            for(int c=0; c<width; c++){
                 depths[i].at<uint16_t>(r, c) = uint16_t(raw_data[i*step + width*r + c]);
             }
         }
@@ -331,7 +331,7 @@ std::vector<cv::Mat> cuda_renderer::raw2mask_uint8_cpu(std::vector<int32_t> &raw
     size_t step = width*height;
     for(size_t i=0; i<pose_size; i++){
         for(int r=0; r<height; r++){
-            for(int c=0; c<height; c++){
+            for(int c=0; c<width; c++){
                 masks[i].at<uchar>(r, c) = ((raw_data[i*step + width*r + c] > 0)?255:0);
             }
         }
@@ -353,7 +353,7 @@ std::vector<std::vector<cv::Mat> > cuda_renderer::raw2depth_mask_cpu(std::vector
     size_t step = width*height;
     for(size_t i=0; i<pose_size; i++){
         for(int r=0; r<height; r++){
-            for(int c=0; c<height; c++){
+            for(int c=0; c<width; c++){
 
                 auto& raw = raw_data[i*step + width*r + c];
                 results[i][0].at<uint16_t>(r, c) = uint16_t(raw);

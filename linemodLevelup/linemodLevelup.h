@@ -381,5 +381,4 @@ protected:
 cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 
-
 #endif

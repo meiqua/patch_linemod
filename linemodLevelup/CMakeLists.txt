@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 set (CMAKE_CXX_STANDARD 14)
 project(patch_linemod)
 
-option(USE_CUDA "use cuda or not" ON)
+option(USE_CUDA "use cuda or not" OFF)
 
 SET(CMAKE_BUILD_TYPE "Release")
 #SET(CMAKE_BUILD_TYPE "Debug")

@@ -17,14 +17,10 @@ public:
 #else
     std::vector<cuda_renderer::Model::Triangle>& tris;
 #endif
-
     cuda_renderer::Model::mat4x4 proj_mat;
-
-
 
     PoseRenderer(std::string model_path, cv::Mat depth=cv::Mat(), cv::Mat K=cv::Mat());
     void set_K_width_height(cv::Mat K, int width, int height);
-
 
     std::vector<cv::Mat> render_depth(std::vector<cv::Mat>& init_poses, float down_sample = 1);
     std::vector<cv::Mat> render_mask(std::vector<cv::Mat>& init_poses, float down_sample = 1);

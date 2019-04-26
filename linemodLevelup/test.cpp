@@ -5,7 +5,8 @@
 #include <chrono>  // for high_resolution_clock
 #include <opencv2/rgbd.hpp>
 #include <opencv2/dnn.hpp>
-// #include <opencv2/cudaimgproc.hpp>
+#include "pose_renderer.h"
+
 using namespace std;
 using namespace cv;
 
@@ -229,7 +230,30 @@ void view_angle(){
     cv::waitKey(0);
 }
 
+void renderer_test(){
+    int width = 640; int height = 480;
+    string dataset_prefix = "/home/meiqua/patch_linemod/public/datasets/doumanoglou/";
+    string model_path = dataset_prefix + "models/obj_01.ply";
+
+    Mat K = (Mat_<float>(3,3) << 572.4114, 0.0, 325.2611, 0.0, 573.57043, 242.04899, 0.0, 0.0, 1.0);
+
+    PoseRenderer renderer(model_path);
+    renderer.set_K_width_height(K, width, height);
+
+    float data[] = {-1.11833259e-01, -9.77041960e-01, 1.81334868e-01, 0.,
+                    8.67027938e-01, -6.77462015e-03, 4.98213470e-01, 0.,
+                    -4.85546976e-01, 2.12939233e-01, 8.47880304e-01, 545., 0., 0.,
+                    0., 1. };
+    Mat pose = Mat(4, 4, CV_32F, data);
+    vector<Mat> init_poses;
+    init_poses.push_back(pose);
+    auto deps = renderer.render_depth(init_poses);
+
+//    imshow("dep", deps[0] > 0);
+//    waitKey(1000);
+}
+
 int main(){
-    detect_test();
+    renderer_test();
     return 0;
 }

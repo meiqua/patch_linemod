@@ -2569,7 +2569,11 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
                          Mat &modelR, Mat &modelT, int detectX, int detectY, double threshold)
 {
     assert(sceneDepth.type() == CV_16U);
+    assert(modelDepth.type() == CV_16U);
     assert(sceneK.type() == CV_32F);
+    assert(modelK.type() == CV_32F);
+    assert(modelR.type() == CV_32F);
+    assert(modelT.type() == CV_32F);
 
     fitness = -1;
     inlier_rmse = -1;
