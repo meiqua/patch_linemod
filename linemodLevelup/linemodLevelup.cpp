@@ -2612,7 +2612,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 
     cv::Mat modelMask = modelDepth > 0;
 
-    for(int i=0; i<3; i++) cv::erode(modelMask, modelMask, cv::Mat());
+    for(int i=0; i<3; i++) cv::dilate(modelMask, modelMask, cv::Mat());
 
     cv::Mat non0p;
     findNonZero(modelMask, non0p);
