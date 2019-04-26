@@ -2612,7 +2612,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 
     cv::Mat modelMask = modelDepth > 0;
 
-    for(int i=0; i<3; i++) cv::dilate(modelMask, modelMask, cv::Mat());
+    for(int i=0; i<3; i++) cv::erode(modelMask, modelMask, cv::Mat());
 
     cv::Mat non0p;
     findNonZero(modelMask, non0p);
@@ -2659,15 +2659,18 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 
 //    auto model_pcd_down = model_pcd;
 //    auto scene_pcd_down = scene_pcd_for_center;
-
-
     Eigen::Vector3d center_scene = Eigen::Vector3d::Zero();
     Eigen::Vector3d center_model = Eigen::Vector3d::Zero();
 
+    double anchor_dep = modelDepth.at<uint16_t>(modelDepth.rows/2, modelDepth.cols/2)/1000.0;
+    int center_scene_size = 0;
     for(auto& p: scene_pcd_down->points_){
-        center_scene += p;
+        if(std::abs(p.z() - anchor_dep) < 0.4){ // not too far
+            center_scene += p;
+            center_scene_size++;
+        }
     }
-    center_scene /= scene_pcd_down->points_.size();
+    center_scene /= center_scene_size;
 
     for(auto& p: model_pcd_down->points_){
         center_model += p;
@@ -2681,6 +2684,10 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
         auto init_result = open3d::EvaluateRegistration(*model_pcd_down, *scene_pcd_down, threshold, init_guess);
         std::cout << "init_result.fitness_: " << init_result.fitness_ << std::endl;
         std::cout << "init_result.inlier_rmse_ : " << init_result.inlier_rmse_ << std::endl;
+
+        model_pcd_down->PaintUniformColor({1, 0.706, 0});
+        scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
+        open3d::DrawGeometries({model_pcd_down, scene_pcd_down});
     }
 
     open3d::EstimateNormals(*model_pcd_down);
@@ -2696,7 +2703,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
         model_pcd_down->Transform(final_result.transformation_);
         model_pcd_down->PaintUniformColor({1, 0.706, 0});
         scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
-        //        open3d::DrawGeometries({model_pcd_down, scene_pcd_down});
+        open3d::DrawGeometries({model_pcd_down, scene_pcd_down});
     }
 
     Eigen::Matrix4d result = final_result.transformation_*init_base.cast<double>();

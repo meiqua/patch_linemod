@@ -51,12 +51,12 @@ def nms(dets, thresh):
 
     return keep
 
-dataset = 'hinterstoisser'
+# dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-# dataset = 'doumanoglou'
+dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 # mode = 'render_train'
@@ -262,7 +262,7 @@ if mode == 'test':
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
                 linemod_time = time.time()
-                dump_matches = False
+                dump_matches = True
                 if dump_matches:
                     # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
                     matches = detector.match([rgb, depth], 70, active_ratio,
@@ -283,7 +283,7 @@ if mode == 'test':
                 local_refine_start = time.time()
                 icp_time = 0
 
-                top100_local_refine = 100  # avoid too many for simple obj,
+                top100_local_refine = 200  # avoid too many for simple obj,
                 # we observed more than 1000 when active ratio too low
 
                 if top100_local_refine > len(matches):
@@ -305,6 +305,12 @@ if mode == 'test':
                     mat_view[:3, 3] = t_match.squeeze()
 
                     [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)])
+
+                    # cv2.rectangle(raw_match_rgb, (match.x, match.y),
+                    #               (match.x + templ[0].width, match.y + templ[0].height), (0, 0, 255), 1)
+                    # cv2.imshow("rgb", raw_match_rgb)
+                    # cv2.imshow("dep", pose_renderer.view_dep(depth_ren))
+                    # cv2.waitKey(0)
 
                     icp_start = time.time()
                     # make sure data type is consistent
@@ -415,6 +421,6 @@ if mode == 'test':
                     cv2.imshow('depth_edge', depth_edge)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
-                    cv2.waitKey(10)
+                    cv2.waitKey(1)
 
 print('end line')
