@@ -4,6 +4,7 @@
 #include <opencv2/rgbd.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include "pose_renderer.h"
 
 class poseRefine{
 public:
@@ -49,9 +50,6 @@ struct Template
     void write(cv::FileStorage& fs) const;
 };
 
-/**
- * \brief Represents a modality operating over an image pyramid.
- */
 class QuantizedPyramid
 {
 public:
@@ -113,11 +111,6 @@ protected:
 
 inline QuantizedPyramid::Candidate::Candidate(int x, int y, int label, float _score) : f(x, y, label), score(_score) {}
 
-/**
- * \brief Interface for modalities that plug into the LINE template matching representation.
- *
- * \todo Max response, to allow optimization of summing (255/MAX) features as uint8
- */
 class Modality
 {
 public:
@@ -156,25 +149,11 @@ protected:
                                                   const cv::Mat& mask) const =0;
 };
 
-/**
- * \brief Modality that computes quantized gradient orientations from a color image.
- */
 class ColorGradient : public Modality
 {
 public:
-    /**
-   * \brief Default constructor. Uses reasonable default parameter values.
-   */
-    ColorGradient();
 
-    /**
-   * \brief Constructor.
-   *
-   * \param weak_threshold   When quantizing, discard gradients with magnitude less than this.
-   * \param num_features     How many features a template must contain.
-   * \param strong_threshold Consider as candidate features only gradients whose norms are
-   *                         larger than this.
-   */
+    ColorGradient();
     ColorGradient(float weak_threshold, size_t num_features, float strong_threshold);
 
     virtual std::string name() const;
@@ -189,27 +168,13 @@ protected:
                                                   const cv::Mat& mask) const;
 };
 
-/**
- * \brief Modality that computes quantized surface normals from a dense depth map.
- */
+
 class DepthNormal : public Modality
 {
 public:
-    /**
-   * \brief Default constructor. Uses reasonable default parameter values.
-   */
+
     DepthNormal();
 
-    /**
-   * \brief Constructor.
-   *
-   * \param distance_threshold   Ignore pixels beyond this distance.
-   * \param difference_threshold When computing normals, ignore contributions of pixels whose
-   *                             depth difference with the central pixel is above this threshold.
-   * \param num_features         How many features a template must contain.
-   * \param extract_threshold    Consider as candidate feature only if there are no differing
-   *                             orientations within a distance of extract_threshold.
-   */
     DepthNormal(int distance_threshold, int difference_threshold, size_t num_features,
                 int extract_threshold);
 
@@ -228,9 +193,7 @@ protected:
                                                   const cv::Mat& mask) const;
 };
 
-/**
- * \brief Represents a successful template match.
- */
+
 struct Match
 {
     Match()
@@ -269,28 +232,26 @@ Match::Match(int _x, int _y, float _similarity, const std::string& _class_id, in
     : x(_x), y(_y), similarity(_similarity), class_id(_class_id), template_id(_template_id)
 {}
 
-/**
- * \brief Object detector using the LINE template matching algorithm with any set of
- * modalities.
- */
+struct Pose_structure{
+    std::vector<cv::Mat> Ts;
+    struct Node{
+        int id;
+        std::vector<int> adjs;
+    };
+    std::vector<Node> nodes;
+
+    int select_behalf(std::vector<int>& current_cluster){
+        return current_cluster[0]; // may select better behalf if use SO3 pose sampler
+    }
+};
 class Detector
 {
 public:
-    /**
-   * \brief Empty constructor, initialize with read().
-   */
     Detector();
 
     Detector(std::vector<int> T, int clusters_ = 16);
     Detector(int num_features, std::vector<int> T, int clusters_ = 16);
 
-    /**
-   * \brief Constructor.
-   *
-   * \param modalities       Modalities to use (color gradients, depth normals, ...).
-   * \param T_pyramid        Value of the sampling step T at each pyramid level. The
-   *                         number of pyramid levels is T_pyramid.size().
-   */
     Detector(const std::vector< cv::Ptr<Modality> >& modalities, const std::vector<int>& T_pyramid);
 
     std::vector<Match> match(const std::vector<cv::Mat>& sources, float threshold, float active_ratio = 0.6,
@@ -302,30 +263,12 @@ public:
                                  const cv::Mat object_mask = cv::Mat(),
                                  const std::vector<int> dep_anchors = std::vector<int>());
 
-    /**
-   * \brief Get the modalities used by this detector.
-   *
-   * You are not permitted to add/remove modalities, but you may dynamic_cast them to
-   * tweak parameters.
-   */
     const std::vector< cv::Ptr<Modality> >& getModalities() const { return modalities; }
 
-    /**
-   * \brief Get sampling step T at pyramid_level.
-   */
     int getT(int pyramid_level) const { return T_at_level[pyramid_level]; }
 
-    /**
-   * \brief Get number of pyramid levels used by this detector.
-   */
     int pyramidLevels() const { return pyramid_levels; }
 
-    /**
-   * \brief Get the template pyramid identified by template_id.
-   *
-   * For example, with 2 modalities (Gradient, Normal) and two pyramid levels
-   * (L0, L1), the order is (GradientL0, NormalL0, GradientL1, NormalL1).
-   */
     const std::vector<Template>& getTemplates(const std::string& class_id, int template_id) const;
 
     int numTemplates() const;
@@ -347,6 +290,25 @@ public:
                      const std::string& format = "templates_%s.yml.gz");
     void writeClasses(const std::string& format = "templates_%s.yml.gz") const;
     void clear_classes(){class_templates.clear();}
+
+
+
+    struct Coarse2Fine_tree{
+        struct Node{
+            int id;
+            std::vector<int> child;
+        };
+        std::vector<Node> nodes;
+    };
+    struct TemplateStructure{
+        std::vector<Template> templs;
+        std::vector<Coarse2Fine_tree> templ_forest;
+    };
+    TemplateStructure build_templ_structure(Pose_structure& structure, PoseRenderer& renderer);
+    bool is_similar(cv::Mat& pose1, cv::Mat& pose2, int pyr_level, int stride, PoseRenderer& renderer);
+    Template render_templ(cv::Mat& m4f, int level, PoseRenderer &renderer);
+    std::map<std::string, TemplateStructure> class_templs_structure;
+
 
 protected:
 
@@ -372,12 +334,6 @@ protected:
 
 };
 
-/**
- * \brief Factory function for detector using LINE-MOD algorithm with color gradients
- * and depth normals.
- *
- * Default parameter settings suitable for VGA images.
- */
 cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 

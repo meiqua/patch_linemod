@@ -337,9 +337,15 @@ device_vector_holder<int> render_cuda_keep_in_gpu(device_vector_holder<Model::Tr
 
 struct thrust__int32_uint16
 {
+    thrust__int32_uint16(float scale){
+        this->scale = scale;
+    }
+    float scale;
+
   __host__ __device__ uint16_t operator()(const int &x) const
   {
-    return uint16_t(x);
+      if(scale == 1) return uint16_t(x);
+      else return uint16_t(x*scale);
   }
 };
 
@@ -351,7 +357,7 @@ struct thrust__int32_to_mask
   }
 };
 
-std::vector<cv::Mat> raw2depth_uint16_cuda(device_vector_holder<int> &raw_data, size_t width, size_t height, size_t pose_size)
+std::vector<cv::Mat> raw2depth_uint16_cuda(device_vector_holder<int> &raw_data, float scale, size_t width, size_t height, size_t pose_size)
 {
     assert(raw_data.size() == width*height*pose_size);
 
@@ -363,7 +369,7 @@ std::vector<cv::Mat> raw2depth_uint16_cuda(device_vector_holder<int> &raw_data, 
 
     thrust::device_vector<uint16_t> int16_data(raw_data.size());
     thrust::transform(thrust::cuda::par.on(cudaStreamPerThread),
-                      raw_data.begin_thr(), raw_data.end_thr(), int16_data.begin(), thrust__int32_uint16());
+                      raw_data.begin_thr(), raw_data.end_thr(), int16_data.begin(), thrust__int32_uint16(scale));
     cudaStreamSynchronize(cudaStreamPerThread);
 
     size_t step = width*height;
@@ -375,7 +381,7 @@ std::vector<cv::Mat> raw2depth_uint16_cuda(device_vector_holder<int> &raw_data, 
     return depths;
 }
 
-std::vector<cv::Mat> raw2mask_uint8_cuda(device_vector_holder<int> &raw_data, size_t width, size_t height, size_t pose_size)
+std::vector<cv::Mat> raw2mask_uint8_cuda(device_vector_holder<int> &raw_data, float scale, size_t width, size_t height, size_t pose_size)
 {
     assert(raw_data.size() == width*height*pose_size);
 
@@ -399,14 +405,19 @@ std::vector<cv::Mat> raw2mask_uint8_cuda(device_vector_holder<int> &raw_data, si
     return masks;
 }
 
-__global__ void raw2depth_mask_kernel(int* raw_data_ptr, int raw_data_size, uint16_t* depth_ptr, uint8_t* mask_ptr){
+__global__ void raw2depth_mask_kernel(float scale, int* raw_data_ptr, int raw_data_size, uint16_t* depth_ptr, uint8_t* mask_ptr){
     size_t i = blockIdx.x*blockDim.x + threadIdx.x;
     if(i>=raw_data_size) return;
-    depth_ptr[i] = uint16_t(raw_data_ptr[i]);
+
+    if(scale == 1)
+        depth_ptr[i] = uint16_t(raw_data_ptr[i]);
+    else
+        depth_ptr[i] = uint16_t(raw_data_ptr[i]*scale);
+
     mask_ptr[i] = (raw_data_ptr[i] > 0) ? 255 : 0;
 }
 
-std::vector<std::vector<cv::Mat> > raw2depth_mask_cuda(device_vector_holder<int32_t> &raw_data, size_t width, size_t height, size_t pose_size)
+std::vector<std::vector<cv::Mat> > raw2depth_mask_cuda(device_vector_holder<int32_t> &raw_data, float scale, size_t width, size_t height, size_t pose_size)
 {
     assert(raw_data.size() == width*height*pose_size);
 
@@ -424,7 +435,7 @@ std::vector<std::vector<cv::Mat> > raw2depth_mask_cuda(device_vector_holder<int3
 
     const size_t threadsPerBlock = 256;
     const size_t numBlocks = (raw_data.size() + threadsPerBlock - 1) / threadsPerBlock;
-    raw2depth_mask_kernel<<<numBlocks, threadsPerBlock>>>(raw_data.data(), raw_data.size(), depth_ptr, mask_ptr);
+    raw2depth_mask_kernel<<<numBlocks, threadsPerBlock>>>(scale, raw_data.data(), raw_data.size(), depth_ptr, mask_ptr);
     cudaStreamSynchronize(cudaStreamPerThread);
 
     size_t step = width*height;

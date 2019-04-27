@@ -23,7 +23,7 @@ void PoseRenderer::set_K_width_height(cv::Mat K, int width, int height)
 }
 
 template<typename F>
-auto PoseRenderer::render_what(F f, std::vector<cv::Mat> &init_poses, float down_sample)
+auto PoseRenderer::render_what(F f, std::vector<cv::Mat> &init_poses, float scale, float down_sample)
 {
     const int width_local = width/down_sample;
     const int height_local = height/down_sample;
@@ -32,33 +32,33 @@ auto PoseRenderer::render_what(F f, std::vector<cv::Mat> &init_poses, float down
     for(size_t i=0; i<init_poses.size();i++) mat4_v[i].init_from_cv(init_poses[i]);
 
     auto depths = cuda_renderer::render(tris, mat4_v, width_local, height_local, proj_mat);
-    return f(depths, width_local, height_local, init_poses.size());
+    return f(depths, scale, width_local, height_local, init_poses.size());
 }
 
-std::vector<cv::Mat> PoseRenderer::render_depth(std::vector<cv::Mat> &init_poses, float down_sample)
+std::vector<cv::Mat> PoseRenderer::render_depth(std::vector<cv::Mat> &init_poses, float scale, float down_sample)
 {
 #ifdef CUDA_ON
-    return render_what(cuda_renderer::raw2depth_uint16_cuda, init_poses, down_sample);
+    return render_what(cuda_renderer::raw2depth_uint16_cuda, init_poses, scale, down_sample);
 #else
-    return render_what(cuda_renderer::raw2depth_uint16_cpu, init_poses, down_sample);
+    return render_what(cuda_renderer::raw2depth_uint16_cpu, init_poses, scale, down_sample);
 #endif
 }
 
-std::vector<cv::Mat> PoseRenderer::render_mask(std::vector<cv::Mat> &init_poses, float down_sample)
+std::vector<cv::Mat> PoseRenderer::render_mask(std::vector<cv::Mat> &init_poses, float scale, float down_sample)
 {
 #ifdef CUDA_ON
-    return render_what(cuda_renderer::raw2mask_uint8_cuda, init_poses, down_sample);
+    return render_what(cuda_renderer::raw2mask_uint8_cuda, init_poses, scale, down_sample);
 #else
-    return render_what(cuda_renderer::raw2mask_uint8_cpu, init_poses, down_sample);
+    return render_what(cuda_renderer::raw2mask_uint8_cpu, init_poses, scale, down_sample);
 #endif
 }
 
-std::vector<std::vector<cv::Mat> > PoseRenderer::render_depth_mask(std::vector<cv::Mat> &init_poses, float down_sample)
+std::vector<std::vector<cv::Mat> > PoseRenderer::render_depth_mask(std::vector<cv::Mat> &init_poses, float scale, float down_sample)
 {
 #ifdef CUDA_ON
-    return render_what(cuda_renderer::raw2depth_mask_cuda, init_poses, down_sample);
+    return render_what(cuda_renderer::raw2depth_mask_cuda, init_poses, scale, down_sample);
 #else
-    return render_what(cuda_renderer::raw2depth_mask_cpu, init_poses, down_sample);
+    return render_what(cuda_renderer::raw2depth_mask_cpu, init_poses, scale, down_sample);
 #endif
 }
 

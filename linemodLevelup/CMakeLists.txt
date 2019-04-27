@@ -54,11 +54,8 @@ set(SOURCE_PYBIND
     pybind11.cpp
     np2mat/ndarray_converter.cpp)
 
-set(SOURCE
-    linemodLevelup.cpp)
-
 set(patch_linemod_srcs
-    linemodLevelup.cpp pose_renderer.cpp)
+    linemodLevelup.cpp pose_renderer.cpp pose_tree.cpp)
 
 
 add_library(${PROJECT_NAME} ${patch_linemod_srcs})

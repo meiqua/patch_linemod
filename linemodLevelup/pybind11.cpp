@@ -21,9 +21,9 @@ PYBIND11_MODULE(patch_linemod_pybind, m) {
                  py::arg("depth") = cv::Mat(), py::arg("K") = cv::Mat())
             .def("view_dep", &PoseRenderer::view_dep)
             .def("set_K_width_height", &PoseRenderer::set_K_width_height)
-            .def("render_depth", &PoseRenderer::render_depth, py::arg("init_poses"), py::arg("down_sample") = 1)
-            .def("render_mask", &PoseRenderer::render_mask, py::arg("init_poses"), py::arg("down_sample") = 1)
-            .def("render_depth_mask", &PoseRenderer::render_depth_mask, py::arg("init_poses"), py::arg("down_sample") = 1);
+            .def("render_depth", &PoseRenderer::render_depth, py::arg("init_poses"), py::arg("scale") = 1, py::arg("down_sample") = 1)
+            .def("render_mask", &PoseRenderer::render_mask, py::arg("init_poses"), py::arg("scale") = 1, py::arg("down_sample") = 1)
+            .def("render_depth_mask", &PoseRenderer::render_depth_mask, py::arg("init_poses"), py::arg("scale") = 1, py::arg("down_sample") = 1);
 
     py::class_<linemodLevelup::Match>(m,"Match")
             .def(py::init<>())

@@ -297,7 +297,7 @@ std::vector<int32_t> cuda_renderer::render_cpu(const std::vector<cuda_renderer::
     return depth;
 }
 
-std::vector<cv::Mat> cuda_renderer::raw2depth_uint16_cpu(std::vector<int32_t> &raw_data, size_t width, size_t height, size_t pose_size)
+std::vector<cv::Mat> cuda_renderer::raw2depth_uint16_cpu(std::vector<int32_t> &raw_data, float scale, size_t width, size_t height, size_t pose_size)
 {
     assert(raw_data.size() == width*height*pose_size);
 
@@ -311,7 +311,12 @@ std::vector<cv::Mat> cuda_renderer::raw2depth_uint16_cpu(std::vector<int32_t> &r
     for(size_t i=0; i<pose_size; i++){
         for(int r=0; r<height; r++){
             for(int c=0; c<width; c++){
-                depths[i].at<uint16_t>(r, c) = uint16_t(raw_data[i*step + width*r + c]);
+
+                if(scale == 1)
+                    depths[i].at<uint16_t>(r, c) = uint16_t(raw_data[i*step + width*r + c]);
+                else
+                    depths[i].at<uint16_t>(r, c) = uint16_t(raw_data[i*step + width*r + c]*scale);
+
             }
         }
     }
@@ -319,7 +324,7 @@ std::vector<cv::Mat> cuda_renderer::raw2depth_uint16_cpu(std::vector<int32_t> &r
     return depths;
 }
 
-std::vector<cv::Mat> cuda_renderer::raw2mask_uint8_cpu(std::vector<int32_t> &raw_data, size_t width, size_t height, size_t pose_size)
+std::vector<cv::Mat> cuda_renderer::raw2mask_uint8_cpu(std::vector<int32_t> &raw_data, float scale, size_t width, size_t height, size_t pose_size)
 {
     assert(raw_data.size() == width*height*pose_size);
 
@@ -340,7 +345,7 @@ std::vector<cv::Mat> cuda_renderer::raw2mask_uint8_cpu(std::vector<int32_t> &raw
     return masks;
 }
 
-std::vector<std::vector<cv::Mat> > cuda_renderer::raw2depth_mask_cpu(std::vector<int32_t> &raw_data, size_t width, size_t height, size_t pose_size)
+std::vector<std::vector<cv::Mat> > cuda_renderer::raw2depth_mask_cpu(std::vector<int32_t> &raw_data, float scale, size_t width, size_t height, size_t pose_size)
 {
     assert(raw_data.size() == width*height*pose_size);
 
@@ -356,7 +361,10 @@ std::vector<std::vector<cv::Mat> > cuda_renderer::raw2depth_mask_cpu(std::vector
             for(int c=0; c<width; c++){
 
                 auto& raw = raw_data[i*step + width*r + c];
-                results[i][0].at<uint16_t>(r, c) = uint16_t(raw);
+                if(scale == 1)
+                    results[i][0].at<uint16_t>(r, c) = uint16_t(raw);
+                else
+                    results[i][0].at<uint16_t>(r, c) = uint16_t(raw*scale);
                 results[i][1].at<uchar>(r, c) = ((raw > 0)?255:0);
             }
         }

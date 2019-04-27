@@ -180,9 +180,9 @@ def main():
     # dataset = 'hinterstoisser'
     # dataset = 'tless'
     # dataset = 'tudlight'
-    # dataset = 'rutgers'
+    dataset = 'rutgers'
     # dataset = 'tejani'
-    dataset = 'doumanoglou'
+    # dataset = 'doumanoglou'
     # dataset = 'toyotalight'
 
     error_bpath = pjoin(top_level_path, 'eval')
@@ -299,7 +299,8 @@ def main():
             if os.path.isfile(scene_errs_path):
                 errs = inout.load_errors(scene_errs_path)
 
-                matches += match_poses(gts, gt_stats, errs, scene_id,
+                if errs:
+                    matches += match_poses(gts, gt_stats, errs, scene_id,
                                        visib_gt_min, error_threshs, n_top)
 
             elif require_all_errors:
