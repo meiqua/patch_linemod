@@ -13,6 +13,10 @@
 using namespace std;
 using namespace cv;
 
+
+
+
+
 namespace linemodLevelup
 {
 /**
@@ -2547,6 +2551,293 @@ void Match::write(FileStorage &fs) const
 }
 
 } // namespace linemodLevelup
+
+
+
+namespace linemodLevelup{
+Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &structure, PoseRenderer &renderer)
+{
+    assert(structure.Ts.size() > 0 && structure.Ts.size() == structure.nodes.size());
+    assert(T_at_level.size() > 1);
+
+    Detector::TemplateStructure templ_structure;
+    auto& templ_forest = templ_structure.templ_forest;
+    auto& templ_v = templ_structure.templs;
+
+    int st_size = structure.Ts.size();
+
+    struct node_cluster_map{
+        std::vector<int> node2cluster;
+        std::vector<std::vector<int>> cluster2node;
+    };
+
+    std::vector<node_cluster_map> nc_maps(T_at_level.size());
+    for(int level_iter=T_at_level.size()-1; level_iter>=0; level_iter--){
+        auto& node2cluster = nc_maps[level_iter].node2cluster;
+        node2cluster.resize(st_size, -1);
+        auto& cluster2node = nc_maps[level_iter].cluster2node;
+
+        for(int node_iter=0; node_iter<st_size; node_iter++){
+            if(node2cluster[node_iter] >= 0) continue;  // has been in a cluster
+
+            // new cluster, set current node's cluster to it
+            int cur_cluster_idx = cluster2node.size();
+            node2cluster[node_iter] = cur_cluster_idx;
+            cluster2node.resize(cur_cluster_idx + 1);
+
+            auto& current_cluster = cluster2node[cur_cluster_idx];
+            current_cluster.push_back(node_iter);
+            // may select a better behalf to compare according to current cluster
+            int current_behalf = structure.select_behalf(current_cluster);
+
+            std::queue<int> bfs_queue;
+            bfs_queue.push(node_iter);
+            while (!bfs_queue.empty()) {
+                auto& node = structure.nodes[bfs_queue.front()];
+                for(int neibor: node.adjs){
+                    if(node2cluster[neibor] >= 0) continue; // allowing overlapping is better?
+                    if(is_similar(structure.Ts[current_behalf], structure.Ts[neibor],
+                                  level_iter, T_at_level[level_iter], renderer)){
+                        current_cluster.push_back(neibor);
+                        current_behalf = structure.select_behalf(current_cluster);
+                        node2cluster[neibor] = cur_cluster_idx;
+                        bfs_queue.push(neibor);
+                    }
+                }
+                bfs_queue.pop();
+            }
+        }
+    }
+
+    std::vector<std::map<int, std::vector<int>>> wanted_maps(T_at_level.size());
+    std::vector<uint8_t> higher_hit(st_size, 0);
+    std::vector<uint8_t> higher_hit_next(st_size, 0);
+    for(int level_iter=T_at_level.size()-1; level_iter>0; level_iter--){
+        auto& node2cluster_next = nc_maps[level_iter-1].node2cluster;
+        auto& cluster2node = nc_maps[level_iter].cluster2node;
+        auto& cluster2node_next = nc_maps[level_iter-1].cluster2node;
+        auto& wanted = wanted_maps[level_iter];
+
+        if(level_iter==T_at_level.size()-1){
+            for(auto& nodes: cluster2node){
+
+                std::vector<uint8_t> higher_hit_local(st_size, 0);
+                for(auto n: nodes){
+                    int hited_cluster = node2cluster_next[n];
+                    if(higher_hit_local[hited_cluster] == 0){
+                        higher_hit_local[hited_cluster] = 1;
+
+                        int behalf = structure.select_behalf(cluster2node_next[hited_cluster]);
+                        wanted[structure.select_behalf(nodes)].push_back(behalf);
+                    }
+                }
+                for(int hit_iter=0; hit_iter<st_size; hit_iter++)
+                    if(higher_hit_local[hit_iter]>0) higher_hit[hit_iter] = 1;
+            }
+        }else{
+            for(int cluster_iter=0; cluster_iter<cluster2node.size(); cluster_iter++){
+                if(higher_hit[cluster_iter] == 0) continue;
+
+                auto& nodes = cluster2node[cluster_iter];
+                std::vector<uint8_t> higher_hit_local(st_size, 0);
+                for(auto n: nodes){
+                    int hited_cluster = node2cluster_next[n];
+                    if(higher_hit_local[hited_cluster] == 0){
+                        higher_hit_local[hited_cluster] = 1;
+                        int behalf = structure.select_behalf(cluster2node_next[hited_cluster]);
+                        wanted[structure.select_behalf(nodes)].push_back(behalf);
+                    }
+                }
+                for(int hit_iter=0; hit_iter<st_size; hit_iter++)
+                    if(higher_hit_local[hit_iter]>0) higher_hit_next[hit_iter] = 1;
+            }
+            higher_hit = higher_hit_next;
+            std::fill(higher_hit_next.begin(), higher_hit_next.end(), 0);
+        }
+    }
+
+    templ_forest.resize(wanted_maps.back().size());
+    std::vector<int> render_id_v; // later we will render & make templates from those id
+    std::map<int, int> id2render_idx;
+    int last_level_iter = 0;
+    auto id_level2unique = [&st_size](int id, int level){return id + level * st_size;};
+    auto unique2id = [&st_size](int unique){return unique%st_size;};
+    auto unique2level = [&st_size](int unique){return unique/st_size;};
+    for(auto& m: wanted_maps[T_at_level.size()-1]){
+        int render_id = id_level2unique(m.first, T_at_level.size()-1);
+        id2render_idx[render_id] = render_id_v.size();
+        render_id_v.push_back(render_id);
+
+        templ_forest[last_level_iter].nodes.resize(1 + m.second.size());
+        auto& child = templ_forest[last_level_iter].nodes[0].child;
+        for(int id_iter=0; id_iter<m.second.size(); id_iter++){
+            child.push_back(1 + id_iter);
+            int child_render_id = id_level2unique(m.second[id_iter], T_at_level.size()-2);
+            int child_render_idx;
+            if(id2render_idx.find(child_render_id) != id2render_idx.end()){
+                child_render_idx = id2render_idx[child_render_id];
+            }else{
+                child_render_idx = render_id_v.size();
+                id2render_idx[child_render_id] = child_render_idx;
+                render_id_v.push_back(child_render_id);
+            }
+            templ_forest[last_level_iter].nodes[1 + id_iter].id = child_render_idx;
+        }
+        last_level_iter++;
+    }
+
+    // c2f: coarse2fine; templ_forest: one coarsest cluster <---> one tree
+    for(auto& c2f_tree: templ_forest){
+        int curr_level_start_node = 1;
+        int next_level_start_node = c2f_tree.nodes.size();
+        for(int level = T_at_level.size() - 2; level > 0; level--){
+
+            for(int node_iter = curr_level_start_node; node_iter<next_level_start_node; node_iter++){
+                std::vector<int> next_level_child_v =
+                        wanted_maps[level][unique2id(render_id_v[c2f_tree.nodes[node_iter].id])];
+
+                int curr_tree_size = c2f_tree.nodes.size();
+                c2f_tree.nodes.resize(curr_tree_size + next_level_child_v.size());
+
+                for(int child_iter=0; child_iter<next_level_child_v.size(); child_iter++){
+                    c2f_tree.nodes[node_iter].child.push_back(curr_tree_size+child_iter);
+                    int child_render_id = id_level2unique(next_level_child_v[child_iter], level-1);
+
+                    int child_render_idx;
+                    if(id2render_idx.find(child_render_id) != id2render_idx.end()){
+                        child_render_idx = id2render_idx[child_render_id];
+                    }else{
+                        child_render_idx = render_id_v.size();
+                        id2render_idx[child_render_id] = child_render_idx;
+                        render_id_v.push_back(child_render_id);
+                    }
+                    c2f_tree.nodes[curr_tree_size + child_iter].id = child_render_idx;
+                }
+            }
+            curr_level_start_node = next_level_start_node;
+            next_level_start_node = c2f_tree.nodes.size();
+        }
+    }
+
+    templ_v.resize(render_id_v.size());
+    for(int i=0; i<render_id_v.size(); i++){
+        int id = unique2id(render_id_v[i]);
+        int level = unique2level(render_id_v[i]);
+        templ_v[i] = render_templ(structure.Ts[id], level, renderer);
+    }
+
+    return templ_structure;
+}
+
+static cv::Rect find_bbox(const cv::Mat& mask){
+    cv::Mat Points;
+    cv::findNonZero(mask,Points);
+    return cv::boundingRect(Points);
+}
+
+bool Detector::is_similar(Mat &pose1, Mat &pose2, int pyr_level, int stride, PoseRenderer &renderer)
+{
+    std::vector<cv::Mat> poses;
+    poses.push_back(pose1);
+    poses.push_back(pose2);
+    auto dep_masks = renderer.render_depth_mask(poses, 1, pyr_level);
+
+    cv::Rect bbox0 = find_bbox(dep_masks[0][1]);
+    cv::Rect bbox1 = find_bbox(dep_masks[1][1]);
+
+    int padding = 10;
+    cv::Mat mask(bbox1.height+2*padding, bbox1.width+2*padding, CV_8UC1, cv::Scalar(0));
+    cv::Mat depth(bbox1.height+2*padding, bbox1.width+2*padding, CV_16UC1, cv::Scalar(0));
+    dep_masks[1][0](bbox1).copyTo(depth(Rect(padding, padding, bbox1.height, bbox1.width)));
+    dep_masks[1][1](bbox1).copyTo(mask(Rect(padding, padding, bbox1.height, bbox1.width)));
+
+
+
+    dep_masks[0][0] = dep_masks[0][0](bbox0);
+    dep_masks[0][1] = dep_masks[0][1](bbox0);
+    std::vector<Template> templs(2);
+    std::vector<LinearMemories> lm_level(2);
+
+    for (size_t i = 0; i < 2; ++i)
+    {
+        {
+            Ptr<QuantizedPyramid> qp = modalities[i]->process(dep_masks[0]);
+            qp->extractTemplate(templs[i]);
+        }
+        {
+            cv::Mat quantized, spread_quantized;
+            std::vector<Mat> response_maps;
+            Ptr<QuantizedPyramid> qp = modalities[i]->process(dep_masks[1]);
+            qp->quantize(quantized);
+
+            spread(quantized, spread_quantized, stride);
+            computeResponseMaps(spread_quantized, response_maps);
+
+            LinearMemories &memories = lm_level[i];
+            for (int j = 0; j < 8; ++j)
+                linearize(response_maps[j], memories[j], stride);
+        }
+    }
+
+    auto similarity_custom = [&](Template& templ, LinearMemories& linear_memories){
+        int W = mask.cols / stride;
+        int H = mask.rows / stride;
+        cv::Mat dst = Mat::zeros(H, W, CV_16U);
+
+        int wf = (templ.width - 1) / stride + 1;
+        int hf = (templ.height - 1) / stride + 1;
+
+        int span_x = W - wf;
+        int span_y = H - hf;
+
+        int template_positions = span_y * W + span_x + 1;
+
+        for (int i = 0; i < (int)templ.features.size(); ++i)
+        {
+            Feature f = templ.features[i];
+            uint16_t *dst_ptr = dst.ptr<uint16_t>();
+
+            if (f.x < 0 || f.x >= mask.cols || f.y < 0 || f.y >= mask.rows)
+                continue;
+            const uchar* lm_ptr = accessLinearMemory(linear_memories, f, stride, W);
+
+            for ( int j=0; j < template_positions; ++j)
+                dst_ptr[j] = uint16_t(dst_ptr[j] + lm_ptr[j]);
+        }
+        return dst;
+    };
+    cv::Mat score0 = similarity_custom(templs[0], lm_level[0]);
+    cv::Mat score1 = similarity_custom(templs[1], lm_level[1]);
+    cv::Mat score = score0 + score1;
+    double thresh = 0.9 * (templs[0].features.size() + templs[1].features.size())*4;
+    double minVal;
+    double maxVal;
+    cv::minMaxLoc( score, &minVal, &maxVal);
+
+    return maxVal >= thresh;
+}
+
+std::vector<Template> Detector::render_templ(Mat &m4f, int level, PoseRenderer& renderer)
+{
+    std::vector<cv::Mat> poses;
+    poses.push_back(m4f);
+    auto dep_masks = renderer.render_depth_mask(poses, 1, level);
+
+    std::vector<Template> templs(2);
+    for(int i=0; i<2; i++){
+        Ptr<QuantizedPyramid> qp = modalities[i]->process(dep_masks[0]);
+        qp->extractTemplate(templs[i]);
+    }
+    cropTemplates(templs, clusters);
+    return templs;
+}
+}
+
+
+
+
+
+
 
 template<typename _Tp, int _rows, int _cols, int _options, int _maxRows, int _maxCols>
 void eigen2cv(const Eigen::Matrix<_Tp, _rows, _cols, _options, _maxRows, _maxCols>& src, cv::Mat& dst)

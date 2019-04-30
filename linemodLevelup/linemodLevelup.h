@@ -301,12 +301,12 @@ public:
         std::vector<Node> nodes;
     };
     struct TemplateStructure{
-        std::vector<Template> templs;
+        std::vector<std::vector<Template>> templs;
         std::vector<Coarse2Fine_tree> templ_forest;
     };
     TemplateStructure build_templ_structure(Pose_structure& structure, PoseRenderer& renderer);
     bool is_similar(cv::Mat& pose1, cv::Mat& pose2, int pyr_level, int stride, PoseRenderer& renderer);
-    Template render_templ(cv::Mat& m4f, int level, PoseRenderer &renderer);
+    std::vector<Template> render_templ(cv::Mat& m4f, int level, PoseRenderer &renderer);
     std::map<std::string, TemplateStructure> class_templs_structure;
 
 
