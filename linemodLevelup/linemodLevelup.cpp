@@ -1988,7 +1988,7 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
 #pragma omp declare reduction \
     (omp_insert: std::vector<Match>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
 
-#pragma omp parallel for reduction(omp_insert:matches)
+//#pragma omp parallel for reduction(omp_insert:matches)
     for (size_t template_id = 0; template_id < template_pyramids.size(); ++template_id)
     {
         const TemplatePyramid &tp = template_pyramids[template_id];
@@ -2225,6 +2225,277 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
         matches.insert(matches.end(), candidates.begin(), candidates.end());
     }
 }
+
+void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_pyramid,
+                                       const std::vector<Size> &sizes, float threshold,
+                                       float active_ratio, std::vector<Match> &matches,
+                                       const string &class_id, const Detector::TemplateStructure &template_structure) const
+{
+    constexpr int min_active_part = 3; // better for small objs?
+
+    struct temp_storage{
+        std::set<int> tid;
+        float score;
+    };
+
+    std::map<std::vector<int>, temp_storage> xy_templ_id_map;
+
+    for(size_t tree_i=0; tree_i < template_structure.last_level_size; tree_i++){
+        // lowest level
+        auto& templs_lowest = template_structure.templs[tree_i];
+        auto& child = template_structure.templ_forest[tree_i];
+        const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back();
+
+        { // Compute similarity maps for each modality at lowest pyramid level
+            std::vector<std::vector<Mat>> similarities(modalities.size());
+            std::vector<std::vector<uint16_t>> cluster_counts(modalities.size());
+
+            int lowest_T = T_at_level.back();
+
+            std::vector<int> total_counts(modalities.size(), 0);
+            for (int i = 0; i < (int)modalities.size(); ++i)
+            {
+                const Template &templ = templs_lowest[i];
+                total_counts[i] = templ.clusters;
+                similarity(cluster_counts[i], lowest_lm[i], templ, similarities[i], sizes.back(), lowest_T);
+            }
+            cv::Mat nms_candidates = cv::Mat(similarities[0][0].rows, similarities[0][0].cols, CV_32FC1,
+                    cv::Scalar(std::numeric_limits<float>::max()));
+
+            for (int i = 0; i < (int)modalities.size(); ++i)
+            { // min score of two modalities
+                Mat active_count_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_8UC1);
+                Mat active_score_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
+                Mat active_feat_num_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
+
+                for(int j=0; j<similarities[i].size(); j++){
+                    auto& simi = similarities[i][j];
+                    int feat_count = cluster_counts[i][j];
+
+                    int raw_thresh = int((threshold)*(4 * feat_count)/100);
+
+                    cv::Mat active_mask = simi > raw_thresh;
+
+                    active_count_1mod += active_mask/255;
+
+                    add_16u_8u(active_score_1mod, simi, active_mask);
+
+                    cv::Mat active_unit;
+                    active_mask.convertTo(active_unit, CV_16UC1);
+                    active_feat_num_1mod += active_unit/255*feat_count;
+                }
+
+                for (int r = 0; r < active_count_1mod.rows; ++r)
+                {
+                    ushort *raw_score = active_score_1mod.ptr<ushort>(r);
+                    ushort *active_feats = active_feat_num_1mod.ptr<ushort>(r);
+                    uchar* active_parts = active_count_1mod.ptr<uchar>(r);
+
+                    float* nms_row = nms_candidates.ptr<float>(r);
+                    for (int c = 0; c < active_count_1mod.cols; ++c)
+                    {
+                        float score = 100.0f/4*raw_score[c]/active_feats[c];
+                        if (active_parts[c] > int(total_counts[i]*active_ratio - 0.001f) && active_parts[c] > 0 &&
+                                (active_parts[c] >= min_active_part || active_parts[c] >= total_counts[i])
+                                && score>threshold)
+                        {
+                            if(score < nms_row[c])
+                                nms_row[c] = score;
+                        }else{
+                            nms_row[c] = 0;
+                        }
+                    }
+                }
+            }
+
+            // Find initial matches, nms
+            int nms_kernel_size = 5;
+            for (int r = nms_kernel_size/2; r < similarities[0][0].rows-nms_kernel_size/2; ++r)
+            {
+                float* nms_row = nms_candidates.ptr<float>(r);
+                for (int c = nms_kernel_size/2; c < similarities[0][0].cols-nms_kernel_size/2; ++c)
+                {
+                    float score = nms_row[c];
+                    if(score<=0) continue;
+
+                    bool is_max = true;
+                    for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
+                        for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
+                            if(r_offset == 0 && c_offset == 0) continue;
+
+                            if(score < nms_candidates.at<float>(r+r_offset, c+c_offset)){
+                                score = 0;
+                                is_max = false;
+                                goto break2;
+                            }
+                        }
+                    }
+                    break2:
+
+                    if(is_max){
+                        for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
+                            for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
+                                if(r_offset == 0 && c_offset == 0) continue;
+                                nms_candidates.at<float>(r+r_offset, c+c_offset) = 0;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (int r = 0; r < similarities[0][0].rows; ++r)
+            {
+                float* nms_row = nms_candidates.ptr<float>(r);
+                for (int c = 0; c < similarities[0][0].cols; ++c){
+                    if(nms_row[c]>0){
+                        int offset = lowest_T / 2 + (lowest_T % 2 - 1);
+                        int x = c * lowest_T + offset;
+                        int y = r * lowest_T + offset;
+                        xy_templ_id_map[{x, y}].score = nms_row[c];
+                        xy_templ_id_map[{x, y}].tid.insert(child.begin(), child.end());
+                    }
+                }
+            }
+        }
+    }
+
+    // Locally refine each match by marching up the pyramid
+    for (int l = pyramid_levels - 2; l >= 0; --l)
+    {
+        std::vector<Match> candidates;
+        for(auto& m: xy_templ_id_map){
+            int x = m.first[0];
+            int y = m.first[1];
+            float score = m.second.score;
+            for(auto& tid: m.second.tid){
+                candidates.emplace_back(x, y, score, class_id, tid);
+            }
+        }
+        xy_templ_id_map.clear();
+
+
+        const std::vector<LinearMemories> &lms = lm_pyramid[l];
+        int T = T_at_level[l];
+        Size size = sizes[l];
+        int border = 8 * T;
+        int offset = T / 2 + (T % 2 - 1);
+
+        const int local_size = 16;
+        std::vector<std::vector<Mat>> similarities2(modalities.size());
+        std::vector<std::vector<uint16_t>> cluster_counts2(modalities.size());
+
+        for (int m = 0; m < (int)candidates.size(); ++m){
+            auto& tps = template_structure.templs[candidates[m].template_id];
+
+            std::vector<int> total_counts2(modalities.size());
+            Match &match2 = candidates[m];
+            int x = match2.x * 2 + 1; /// @todo Support other pyramid distance
+            int y = match2.y * 2 + 1;
+
+            // Require 8 (reduced) row/cols to the up/left
+            x = std::max(x, border);
+            y = std::max(y, border);
+
+            // Require 8 (reduced) row/cols to the down/left, plus the template size
+            x = std::min(x, size.width - tps[0].width - border);
+            y = std::min(y, size.height - tps[0].height - border);
+            x = std::min(x, size.width - tps[1].width - border);
+            y = std::min(y, size.height - tps[1].height - border);
+
+            for (int i = 0; i < (int)modalities.size(); ++i)
+            {
+                const Template &templ = tps[i];
+                total_counts2[i] = templ.clusters;
+                similarityLocal(cluster_counts2[i], lms[i], templ, similarities2[i], size, T, Point(x, y));
+            }
+
+            float best_score = 0;
+            int best_r = -1, best_c = -1;
+
+            std::vector<cv::Mat> score_2mod(modalities.size());
+            for (int i = 0; i < (int)modalities.size(); ++i){
+                Mat active_count2 = Mat::zeros(local_size, local_size, CV_8UC1);
+                Mat active_feat_num2 = Mat::zeros(local_size, local_size, CV_16UC1);
+                Mat active_score2 = Mat::zeros(local_size, local_size, CV_16UC1);
+
+                for(int j=0; j<total_counts2[i]; j++){
+                    auto& simi = similarities2[i][j];
+                    uint16_t feat_count = cluster_counts2[i][j];
+
+                    uint16_t raw_thresh = uint16_t((threshold)*(4 * feat_count)/100);
+                    cv::Mat active_mask = simi > raw_thresh;
+
+                    active_count2 += active_mask/255;
+
+                    add_16u_8u(active_score2, simi, active_mask);
+
+                    cv::Mat active_unit;
+                    active_mask.convertTo(active_unit, CV_16UC1);
+                    active_feat_num2 += active_unit/255*feat_count;
+                }
+
+                score_2mod[i] = cv::Mat(local_size, local_size, CV_32FC1, cv::Scalar(0));
+                for (int r = 0; r < local_size; ++r)
+                {
+                    ushort* active_score2_row = active_score2.ptr<ushort>(r);
+                    ushort* active_feat_num2_row = active_feat_num2.ptr<ushort>(r);
+                    uchar* active_count2_row = active_count2.ptr<uchar>(r);
+                    float* score_2mod_row = score_2mod[i].ptr<float>(r);
+                    for (int c = 0; c < local_size; ++c)
+                    {
+                        if (active_count2_row[c]> int(total_counts2[i]*active_ratio - 0.001f) && active_count2_row[c] > 0
+                                && (active_count2_row[c] >= min_active_part || active_count2_row[c] >= total_counts2[i]))
+                        {
+                            score_2mod_row[c] = 100.0f/4*
+                                    active_score2_row[c]
+                                    /active_feat_num2_row[c];
+                        }
+                    }
+                }
+            }
+
+            cv::Mat min_score(score_2mod[0].size(), CV_32FC1, cv::Scalar(std::numeric_limits<float>::max()));
+            for(auto& score: score_2mod){
+                min_score = cv::min(min_score, score);
+            }
+
+            for (int r = 0; r < local_size; ++r)
+            {
+                float* score_2mod_row = min_score.ptr<float>(r);
+                for (int c = 0; c < local_size; ++c)
+                {
+                    if(score_2mod_row[c] > best_score){
+                        best_score = score_2mod_row[c];
+                        best_c = c;
+                        best_r = r;
+                    }
+                }
+            }
+
+            // Update current match
+            match2.similarity = best_score;
+            match2.x = (x / T - 8 + best_c) * T + offset;
+            match2.y = (y / T - 8 + best_r) * T + offset;
+
+            if(match2.x < 0 || match2.y <0) match2.similarity = 0;
+
+
+
+            if(match2.similarity > 0){
+
+                if(l>0){  // prepare for next level
+                    auto& child = template_structure.templ_forest[candidates[m].template_id];
+                    xy_templ_id_map[{match2.x, match2.y}].tid.insert(child.begin(), child.end());
+                }else{
+                    matches.insert(matches.end(), candidates.begin(), candidates.end());
+                }
+
+
+            }
+        }
+    }
+}
+
 
 std::vector<int> Detector::addTemplate(const std::vector<Mat> &sources, const std::string &class_id,
                                        const Mat object_mask, const std::vector<int> dep_anchors)
@@ -2663,59 +2934,49 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
     auto id_level2unique = [&st_size](int id, int level){return id + level * st_size;};
     auto unique2id = [&st_size](int unique){return unique%st_size;};
     auto unique2level = [&st_size](int unique){return unique/st_size;};
+
+    std::set<int> next_level_id, next_level_id2;
     for(auto& m: wanted_maps[T_at_level.size()-1]){
         int render_id = id_level2unique(m.first, T_at_level.size()-1);
         id2render_idx[render_id] = render_id_v.size();
         render_id_v.push_back(render_id);
+        templ_forest.resize(templ_forest.size() + 1);
 
-        templ_forest[last_level_iter].nodes.resize(1 + m.second.size());
-        auto& child = templ_forest[last_level_iter].nodes[0].child;
-        for(int id_iter=0; id_iter<m.second.size(); id_iter++){
-            child.push_back(1 + id_iter);
-            int child_render_id = id_level2unique(m.second[id_iter], T_at_level.size()-2);
-            int child_render_idx;
-            if(id2render_idx.find(child_render_id) != id2render_idx.end()){
-                child_render_idx = id2render_idx[child_render_id];
-            }else{
-                child_render_idx = render_id_v.size();
-                id2render_idx[child_render_id] = child_render_idx;
-                render_id_v.push_back(child_render_id);
-            }
-            templ_forest[last_level_iter].nodes[1 + id_iter].id = child_render_idx;
+        for(auto p_id: m.second){
+            next_level_id.insert(p_id);
+            templ_forest.back().push_back(id_level2unique(p_id, T_at_level.size()-1));
         }
+
         last_level_iter++;
     }
+    templ_structure.last_level_size = last_level_iter;
 
-    // c2f: coarse2fine; templ_forest: one coarsest cluster <---> one tree
-    for(auto& c2f_tree: templ_forest){
-        int curr_level_start_node = 1;
-        int next_level_start_node = c2f_tree.nodes.size();
-        for(int level = T_at_level.size() - 2; level > 0; level--){
+    for(int level = T_at_level.size()-2; level>0; level--){
+        for(auto p_id: next_level_id){
+            int render_id = id_level2unique(p_id, level);
+            id2render_idx[render_id] = render_id_v.size();
+            render_id_v.push_back(render_id);
 
-            for(int node_iter = curr_level_start_node; node_iter<next_level_start_node; node_iter++){
-                std::vector<int> next_level_child_v =
-                        wanted_maps[level][unique2id(render_id_v[c2f_tree.nodes[node_iter].id])];
+            templ_forest.resize(templ_forest.size() + 1);
 
-                int curr_tree_size = c2f_tree.nodes.size();
-                c2f_tree.nodes.resize(curr_tree_size + next_level_child_v.size());
-
-                for(int child_iter=0; child_iter<next_level_child_v.size(); child_iter++){
-                    c2f_tree.nodes[node_iter].child.push_back(curr_tree_size+child_iter);
-                    int child_render_id = id_level2unique(next_level_child_v[child_iter], level-1);
-
-                    int child_render_idx;
-                    if(id2render_idx.find(child_render_id) != id2render_idx.end()){
-                        child_render_idx = id2render_idx[child_render_id];
-                    }else{
-                        child_render_idx = render_id_v.size();
-                        id2render_idx[child_render_id] = child_render_idx;
-                        render_id_v.push_back(child_render_id);
-                    }
-                    c2f_tree.nodes[curr_tree_size + child_iter].id = child_render_idx;
-                }
+            for(auto next_p_id: wanted_maps[level][p_id]){
+                next_level_id2.insert(next_p_id);
+                templ_forest.back().push_back(id_level2unique(next_p_id, level));
             }
-            curr_level_start_node = next_level_start_node;
-            next_level_start_node = c2f_tree.nodes.size();
+            next_level_id = next_level_id2;
+            next_level_id2.clear();
+        }
+    }
+
+    for(auto p_id: next_level_id){
+        int render_id = id_level2unique(p_id, 0);
+        id2render_idx[render_id] = render_id_v.size();
+        render_id_v.push_back(render_id);
+    }
+
+    for(auto& childs: templ_forest){
+        for(auto& child: childs){
+            child = id2render_idx[child];
         }
     }
 

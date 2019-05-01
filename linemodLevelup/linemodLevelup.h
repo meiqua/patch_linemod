@@ -291,18 +291,10 @@ public:
     void writeClasses(const std::string& format = "templates_%s.yml.gz") const;
     void clear_classes(){class_templates.clear();}
 
-
-
-    struct Coarse2Fine_tree{
-        struct Node{
-            int id;
-            std::vector<int> child;
-        };
-        std::vector<Node> nodes;
-    };
     struct TemplateStructure{
         std::vector<std::vector<Template>> templs;
-        std::vector<Coarse2Fine_tree> templ_forest;
+        std::vector<std::vector<int>> templ_forest;
+        int last_level_size;
     };
     TemplateStructure build_templ_structure(Pose_structure& structure, PoseRenderer& renderer);
     bool is_similar(cv::Mat& pose1, cv::Mat& pose2, int pyr_level, int stride, PoseRenderer& renderer);
@@ -331,6 +323,12 @@ protected:
                     float threshold, float active_ratio, std::vector<Match>& matches,
                     const std::string& class_id,
                     const std::vector<TemplatePyramid>& template_pyramids) const;
+
+    void matchClass_by_structure(const LinearMemoryPyramid& lm_pyramid,
+                    const std::vector<cv::Size>& sizes,
+                    float threshold, float active_ratio, std::vector<Match>& matches,
+                    const std::string& class_id,
+                    const TemplateStructure& template_structure) const;
 
 };
 
