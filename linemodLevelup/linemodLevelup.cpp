@@ -2373,7 +2373,6 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         }
         xy_templ_id_map.clear();
 
-
         const std::vector<LinearMemories> &lms = lm_pyramid[l];
         int T = T_at_level[l];
         Size size = sizes[l];
@@ -2479,18 +2478,14 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 
             if(match2.x < 0 || match2.y <0) match2.similarity = 0;
 
-
-
             if(match2.similarity > 0){
 
                 if(l>0){  // prepare for next level
-                    auto& child = template_structure.templ_forest[candidates[m].template_id];
+                    auto& child = template_structure.templ_forest[match2.template_id];
                     xy_templ_id_map[{match2.x, match2.y}].tid.insert(child.begin(), child.end());
                 }else{
-                    matches.insert(matches.end(), candidates.begin(), candidates.end());
+                    matches.push_back(match2);
                 }
-
-
             }
         }
     }
@@ -2599,39 +2594,8 @@ std::vector<int> Detector::addTemplate(const std::vector<Mat> &sources, const st
 }
 const std::vector<Template> &Detector::getTemplates(const std::string &class_id, int template_id) const
 {
-    TemplatesMap::const_iterator i = class_templates.find(class_id);
-    CV_Assert(i != class_templates.end());
-    CV_Assert(i->second.size() > size_t(template_id));
-    return i->second[template_id];
-}
-
-int Detector::numTemplates() const
-{
-    int ret = 0;
-    TemplatesMap::const_iterator i = class_templates.begin(), iend = class_templates.end();
-    for (; i != iend; ++i)
-        ret += static_cast<int>(i->second.size());
-    return ret;
-}
-
-//int Detector::numTemplates(const std::string &class_id) const
-//{
-//    TemplatesMap::const_iterator i = class_templates.find(class_id);
-//    if (i == class_templates.end())
-//        return 0;
-//    return static_cast<int>(i->second.size());
-//}
-
-std::vector<std::string> Detector::classIds() const
-{
-    std::vector<std::string> ids;
-    TemplatesMap::const_iterator i = class_templates.begin(), iend = class_templates.end();
-    for (; i != iend; ++i)
-    {
-        ids.push_back(i->first);
-    }
-
-    return ids;
+    auto i = class_templs_structure.find(class_id);
+    return i->second.templs[template_id];
 }
 
 void Detector::read(const FileNode &fn)
@@ -2697,21 +2661,11 @@ void Detector::write_matches(std::vector<Match> &matches, std::string path) cons
 
 std::string Detector::readClass(const FileNode &fn, const std::string &class_id_override)
 {
-    // Verify compatible with Detector settings
-    FileNode mod_fn = fn["modalities"];
-    CV_Assert(mod_fn.size() == modalities.size());
-    FileNodeIterator mod_it = mod_fn.begin(), mod_it_end = mod_fn.end();
-    int i = 0;
-    for (; mod_it != mod_it_end; ++mod_it, ++i)
-        CV_Assert(modalities[i]->name() == (String)(*mod_it));
-    CV_Assert((int)fn["pyramid_levels"] == pyramid_levels);
-
-    // Detector should not already have this class
     String class_id;
     if (class_id_override.empty())
     {
         String class_id_tmp = fn["class_id"];
-        CV_Assert(class_templates.find(class_id_tmp) == class_templates.end());
+        CV_Assert(class_templs_structure.find(class_id_tmp) == class_templs_structure.end());
         class_id = class_id_tmp;
     }
     else
@@ -2719,37 +2673,46 @@ std::string Detector::readClass(const FileNode &fn, const std::string &class_id_
         class_id = class_id_override;
     }
 
-    TemplatesMap::value_type v(class_id, std::vector<TemplatePyramid>());
-    std::vector<TemplatePyramid> &tps = v.second;
+    std::map<std::string, TemplateStructure>::value_type v(class_id, TemplateStructure());
+    TemplateStructure &tps = v.second;
     int expected_id = 0;
 
-    FileNode tps_fn = fn["template_pyramids"];
-    tps.resize(tps_fn.size());
+    FileNode tps_fn = fn["templs"];
+    tps.templs.resize(tps_fn.size());
     FileNodeIterator tps_it = tps_fn.begin(), tps_it_end = tps_fn.end();
     for (; tps_it != tps_it_end; ++tps_it, ++expected_id)
     {
-        int template_id = (*tps_it)["template_id"];
-        CV_Assert(template_id == expected_id);
         FileNode templates_fn = (*tps_it)["templates"];
-        tps[template_id].resize(templates_fn.size());
+        tps.templs[expected_id].resize(templates_fn.size());
 
         FileNodeIterator templ_it = templates_fn.begin(), templ_it_end = templates_fn.end();
         int idx = 0;
         for (; templ_it != templ_it_end; ++templ_it)
         {
-            tps[template_id][idx++].read(*templ_it);
+            tps.templs[expected_id][idx++].read(*templ_it);
         }
     }
 
-    class_templates.insert(v);
+    FileNode forest_fn = fn["forest"];
+    tps.templ_forest.resize(forest_fn.size());
+    FileNodeIterator forest_it = forest_fn.begin(), forest_it_end = forest_fn.end();
+    for (expected_id = 0; forest_it != forest_it_end; ++forest_it, ++expected_id){
+        FileNode childs_fn = (*forest_it)["childs"];
+        tps.templ_forest[expected_id].resize(childs_fn.size());
+        int idx = 0;
+        for(auto child_it = childs_fn.begin(); child_it!=childs_fn.end(); child_it++, idx++){
+            tps.templ_forest[expected_id][idx] = (*child_it);
+        }
+    }
+
+    class_templs_structure.insert(v);
     return class_id;
 }
 
 void Detector::writeClass(const std::string &class_id, FileStorage &fs) const
 {
-    TemplatesMap::const_iterator it = class_templates.find(class_id);
-    CV_Assert(it != class_templates.end());
-    const std::vector<TemplatePyramid> &tps = it->second;
+    auto it = class_templs_structure.find(class_id);
+    CV_Assert(it != class_templs_structure.end());
 
     fs << "class_id" << it->first;
     fs << "modalities"
@@ -2757,14 +2720,13 @@ void Detector::writeClass(const std::string &class_id, FileStorage &fs) const
     for (size_t i = 0; i < modalities.size(); ++i)
         fs << modalities[i]->name();
     fs << "]"; // modalities
-    fs << "pyramid_levels" << pyramid_levels;
-    fs << "template_pyramids"
+    fs << "last_level_size" << it->second.last_level_size;
+    fs << "templs"
        << "[";
-    for (size_t i = 0; i < tps.size(); ++i)
+    for (size_t i = 0; i < it->second.templs.size(); ++i)
     {
-        const TemplatePyramid &tp = tps[i];
+        const auto &tp = it->second.templs[i];
         fs << "{";
-        fs << "template_id" << int(i); //TODO is this cast correct? won't be good if rolls over...
         fs << "templates"
            << "[";
         for (size_t j = 0; j < tp.size(); ++j)
@@ -2777,6 +2739,25 @@ void Detector::writeClass(const std::string &class_id, FileStorage &fs) const
         fs << "}"; // current pyramid
     }
     fs << "]"; // pyramids
+
+    fs << "forest";
+    fs << "[";
+
+    for (size_t i = 0; i < it->second.templ_forest.size(); ++i)
+    {
+        auto& child = it->second.templ_forest[i];
+        fs << "{";
+        fs << "childs"
+           << "[";
+        for (size_t j = 0; j < child.size(); ++j)
+        {
+            fs << child[j];
+        }
+        fs << "]"; // templates
+        fs << "}"; // current pyramid
+    }
+
+    fs << "]";
 }
 
 void Detector::readClasses(const std::vector<std::string> &class_ids,
