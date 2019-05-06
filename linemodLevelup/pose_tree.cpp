@@ -2,6 +2,14 @@
 #include <queue>
 #include <map>
 #include <set>
+
+#include "Open3D/Core/Registration/Registration.h"
+#include "Open3D/Core/Geometry/Image.h"
+#include "Open3D/Core/Geometry/LineSet.h"
+#include "Open3D/Core/Camera/PinholeCameraIntrinsic.h"
+#include "Open3D/Core/Geometry/PointCloud.h"
+#include "Open3D/Visualization/Visualization.h"
+
 using namespace cv;
 
 template<class T>
@@ -46,7 +54,7 @@ static cv::Mat pt2view(const Vec3f& pt, float tilt){
 
     result.at<float>(0, 0) =  s[0]; result.at<float>(0, 1) =  s[1]; result.at<float>(0, 2) =  s[2];
     result.at<float>(1, 0) =  -u[0]; result.at<float>(1, 1) =  -u[1]; result.at<float>(1, 2) =  -u[2];
-    result.at<float>(2, 0) = f[0]; result.at<float>(2, 1) = -f[1]; result.at<float>(2, 2) = f[2];
+    result.at<float>(2, 0) = f[0]; result.at<float>(2, 1) = f[1]; result.at<float>(2, 2) = f[2];
 
     result.at<float>(0, 3) = -s.dot(pt);
     result.at<float>(1, 3) = u.dot(pt);
@@ -134,6 +142,20 @@ linemodLevelup::Pose_structure hinter_sampling(int level, float radius,
                 elev>=elev_range_min && elev<=elev_range_max) return true;
         else return false;
     };
+
+    const bool view_valid_pts = false;
+    if(view_valid_pts){
+        auto model_pcd = std::make_shared<open3d::PointCloud>();
+        for(auto& pt: pts){
+            if(is_valid(pt)){
+                model_pcd->points_.emplace_back(pt[0], pt[1], pt[2]+2);
+                model_pcd->colors_.emplace_back(rand()/float(RAND_MAX),
+                                                rand()/float(RAND_MAX), rand()/float(RAND_MAX));
+            }
+        }
+//        model_pcd->PaintUniformColor({1, 0.706, 0});
+        open3d::DrawGeometries({model_pcd});
+    }
 
     std::vector<int> valid_pts(pts.size(), 0);
     for(size_t i=0; i<pts.size(); i++) if(is_valid(pts[i])) valid_pts[i] = 1;
