@@ -2234,7 +2234,6 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 
     struct temp_storage{
         std::set<int> tid;
-        float score;
     };
 
     std::map<std::vector<int>, temp_storage> xy_templ_id_map;
@@ -2363,7 +2362,6 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                             int offset = lowest_T / 2 + (lowest_T % 2 - 1);
                             int x = c * lowest_T + offset;
                             int y = r * lowest_T + offset;
-                            xy_templ_id_map_private[{x, y}].score = nms_row[c];
                             xy_templ_id_map_private[{x, y}].tid.insert(child.begin(), child.end());
                         }
                     }
@@ -2376,7 +2374,6 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         {
 #endif
             for(auto& m: xy_templ_id_map_private){
-                xy_templ_id_map[m.first].score = m.second.score;
                 xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
             }
 #ifdef _OPENMP
@@ -2387,13 +2384,12 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
     // Locally refine each match by marching up the pyramid
     for (int l = pyramid_levels - 2; l >= 0; --l)
     {
-        std::vector<Match> candidates;
+        std::vector<cv::Vec3i> candidates;
         for(auto& m: xy_templ_id_map){
             int x = m.first[0];
             int y = m.first[1];
-            float score = m.second.score;
             for(auto& tid: m.second.tid){
-                candidates.emplace_back(x, y, score, class_id, tid);
+                candidates.emplace_back(x, y, tid);
             }
         }
         xy_templ_id_map.clear();
@@ -2417,7 +2413,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 #pragma omp for nowait
 #endif
             for (int m = 0; m < (int)candidates.size(); ++m){
-                auto& tps = template_structure.templs[candidates[m].template_id];
+                auto& tps = template_structure.templs[candidates[m][2]];
 
                 bool is_valid_templ = true;
                 for(int i=0; i<modalities.size(); i++){
@@ -2426,7 +2422,11 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                 if(!is_valid_templ) continue;
 
                 std::vector<int> total_counts2(modalities.size());
-                Match &match2 = candidates[m];
+                Match match2;
+                match2.x =candidates[m][0];
+                match2.y = candidates[m][1];
+                match2.template_id = candidates[m][2];
+
                 int x = match2.x * 2 + 1; /// @todo Support other pyramid distance
                 int y = match2.y * 2 + 1;
 
@@ -2523,6 +2523,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                         auto& child = template_structure.templ_forest[match2.template_id];
                         xy_templ_id_map_private[{match2.x, match2.y}].tid.insert(child.begin(), child.end());
                     }else{
+                        match2.class_id = class_id;
                         match_private.push_back(match2);
                     }
                 }
@@ -2532,7 +2533,6 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
             {
 #endif
                 for(auto& m: xy_templ_id_map_private){
-                    xy_templ_id_map[m.first].score = m.second.score;
                     xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
                 }
 
