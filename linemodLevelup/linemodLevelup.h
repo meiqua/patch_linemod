@@ -301,7 +301,8 @@ public:
     std::vector<Template> render_templ(cv::Mat& m4f, int level, PoseRenderer &renderer);
     std::map<std::string, TemplateStructure> class_templs_structure;
 
-
+    // for test
+    std::vector<cv::Vec3f> pts_test;
 protected:
 
     int clusters;

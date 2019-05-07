@@ -2836,6 +2836,8 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
             int cur_cluster_idx = cluster2node.size();
             node2cluster[node_iter] = cur_cluster_idx;
             cluster2node.resize(cur_cluster_idx + 1);
+            std::cout << "level: " << level_iter << endl;
+            std::cout << "curr clusters: " << cluster2node.size() << endl << endl;
 
             auto& current_cluster = cluster2node[cur_cluster_idx];
             current_cluster.push_back(node_iter);
@@ -2858,6 +2860,36 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                 }
                 bfs_queue.pop();
             }
+        }
+
+        const bool view_cluster = false;
+        if(view_cluster){
+            const int top10 = 10;
+
+            auto& nc_map = nc_maps[level_iter];
+            cout << "total nodes: " << nc_map.node2cluster.size() << endl;
+            cout << "total clusters: " << nc_map.cluster2node.size() << endl  << endl;
+
+            std::vector<cv::Vec3f> colors(nc_map.cluster2node.size());
+            for(int i=0; i<colors.size(); i++){
+                colors[i] = {rand()/float(RAND_MAX),
+                             rand()/float(RAND_MAX), rand()/float(RAND_MAX)};
+            }
+
+            auto model_pcd = std::make_shared<open3d::PointCloud>();
+            for(int i=0; i<nc_map.cluster2node.size(); i++){
+                auto nodes = nc_map.cluster2node[i];
+                for(int n: nodes){
+                    auto pt = pts_test[n];
+                    model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800 + 1);
+                    auto color = colors[i];
+                    model_pcd->colors_.emplace_back(color[0], color[1], color[2]);
+                }
+
+                if(i < top10)  // press ESC to view next
+                open3d::DrawGeometries({model_pcd});
+            }
+            open3d::DrawGeometries({model_pcd});
         }
     }
 
@@ -2983,10 +3015,18 @@ bool Detector::is_similar(Mat &pose1, Mat &pose2, int pyr_level, int stride, Pos
     std::vector<cv::Mat> poses;
     poses.push_back(pose1);
     poses.push_back(pose2);
-    auto dep_masks = renderer.render_depth_mask(poses, 1, pyr_level);
+    auto dep_masks = renderer.render_depth_mask(poses, 1, 1 << pyr_level);
 
-    std::swap(dep_masks[0][0],dep_masks[0][1]);
     int padding = 20;
+    {
+        cv::Rect bbox1 = find_bbox(dep_masks[0][1]);
+        cv::Mat mask(bbox1.height+2*padding, bbox1.width+2*padding, CV_8UC1, cv::Scalar(0));
+        cv::Mat depth(bbox1.height+2*padding, bbox1.width+2*padding, CV_16UC1, cv::Scalar(0));
+        dep_masks[0][0](bbox1).copyTo(depth(Rect(padding, padding, bbox1.width, bbox1.height)));
+        dep_masks[0][1](bbox1).copyTo(mask(Rect(padding, padding, bbox1.width, bbox1.height)));
+        dep_masks[0][1] = depth;
+        dep_masks[0][0] = mask;
+    }
     {
         cv::Rect bbox1 = find_bbox(dep_masks[1][1]);
         cv::Mat mask(bbox1.height+2*padding, bbox1.width+2*padding, CV_8UC1, cv::Scalar(0));
@@ -3074,7 +3114,7 @@ bool Detector::is_similar(Mat &pose1, Mat &pose2, int pyr_level, int stride, Pos
     cv::Mat score0 = similarity_custom(templs[0], lm_level[0]);
     cv::Mat score1 = similarity_custom(templs[1], lm_level[1]);
     cv::Mat score = score0 + score1;
-    double thresh = 0.8 * (templs[0].features.size() + templs[1].features.size())*4;
+    double thresh = 0.9 * (templs[0].features.size() + templs[1].features.size())*4;
     double minVal;
     double maxVal;
     cv::Point min_loc, max_loc;
@@ -3115,7 +3155,7 @@ std::vector<Template> Detector::render_templ(Mat &m4f, int level, PoseRenderer& 
 {
     std::vector<cv::Mat> poses;
     poses.push_back(m4f);
-    auto dep_masks = renderer.render_depth_mask(poses, 1, level);
+    auto dep_masks = renderer.render_depth_mask(poses, 1, 1 << level);
     std::swap(dep_masks[0][0],dep_masks[0][1]);
 
     std::vector<Template> templs(2);

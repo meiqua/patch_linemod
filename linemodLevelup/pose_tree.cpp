@@ -148,7 +148,7 @@ linemodLevelup::Pose_structure hinter_sampling(int level, float radius,
         auto model_pcd = std::make_shared<open3d::PointCloud>();
         for(auto& pt: pts){
             if(is_valid(pt)){
-                model_pcd->points_.emplace_back(pt[0], pt[1], pt[2]+2);
+                model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + radius + 1);
                 model_pcd->colors_.emplace_back(rand()/float(RAND_MAX),
                                                 rand()/float(RAND_MAX), rand()/float(RAND_MAX));
             }
