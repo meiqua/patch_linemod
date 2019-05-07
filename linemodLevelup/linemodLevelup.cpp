@@ -2245,6 +2245,12 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         auto& child = template_structure.templ_forest[tree_i];
         const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back();
 
+        bool is_valid_templ = true;
+        for(int i=0; i<modalities.size(); i++){
+            if(templs_lowest[i].features.size() < 8) is_valid_templ = false;
+        }
+
+        if(is_valid_templ)
         { // Compute similarity maps for each modality at lowest pyramid level
             std::vector<std::vector<Mat>> similarities(modalities.size());
             std::vector<std::vector<uint16_t>> cluster_counts(modalities.size());
@@ -2384,6 +2390,12 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 
         for (int m = 0; m < (int)candidates.size(); ++m){
             auto& tps = template_structure.templs[candidates[m].template_id];
+
+            bool is_valid_templ = true;
+            for(int i=0; i<modalities.size(); i++){
+                if(tps[i].features.size() < 8) is_valid_templ = false;
+            }
+            if(!is_valid_templ) continue;
 
             std::vector<int> total_counts2(modalities.size());
             Match &match2 = candidates[m];
@@ -2977,9 +2989,9 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                 next_level_id2.insert(next_p_id);
                 templ_forest.back().push_back(id_level2unique(next_p_id, level-1));
             }
-            next_level_id = next_level_id2;
-            next_level_id2.clear();
         }
+        next_level_id = next_level_id2;
+        next_level_id2.clear();
     }
 
     for(auto p_id: next_level_id){
@@ -2995,12 +3007,15 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
     }
 
     templ_v.resize(render_id_v.size());
+    cout << "total templ: " << render_id_v.size() << endl;
     for(int i=0; i<render_id_v.size(); i++){
         int id = unique2id(render_id_v[i]);
         int level = unique2level(render_id_v[i]);
+
+        cout << "render templ: " << i << endl;
         templ_v[i] = render_templ(structure.Ts[id], level, renderer);
     }
-
+    cout << "build templ sructure success" << endl;
     return templ_structure;
 }
 
@@ -3043,7 +3058,7 @@ bool Detector::is_similar(Mat &pose1, Mat &pose2, int pyr_level, int stride, Pos
     {
         {
             Ptr<QuantizedPyramid> qp = modalities[i]->process(dep_masks[0]);
-            qp->extractTemplate(templs[i]);
+            if(!qp->extractTemplate(templs[i])) return false;
 
             int min_x = std::numeric_limits<int>::max();
             int min_y = std::numeric_limits<int>::max();
@@ -3161,7 +3176,7 @@ std::vector<Template> Detector::render_templ(Mat &m4f, int level, PoseRenderer& 
     std::vector<Template> templs(2);
     for(int i=0; i<2; i++){
         Ptr<QuantizedPyramid> qp = modalities[i]->process(dep_masks[0]);
-        qp->extractTemplate(templs[i]);
+        if(!qp->extractTemplate(templs[i])) return templs;
     }
     cropTemplates(templs, clusters);
     return templs;
