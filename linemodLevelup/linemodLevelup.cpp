@@ -2238,12 +2238,14 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
     };
 
     std::map<std::vector<int>, temp_storage> xy_templ_id_map;
-
+#ifdef _OPENMP
 #pragma omp parallel
     {
+#endif
         std::map<std::vector<int>, temp_storage> xy_templ_id_map_private;
-
+#ifdef _OPENMP
 #pragma omp for nowait
+#endif
         for(size_t tree_i=0; tree_i < template_structure.last_level_size; tree_i++){
             // lowest level
             auto& templs_lowest = template_structure.templs[tree_i];
@@ -2369,15 +2371,18 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
             }
         }
 
+#ifdef _OPENMP
 #pragma omp critical
         {
+#endif
             for(auto& m: xy_templ_id_map_private){
                 xy_templ_id_map[m.first].score = m.second.score;
                 xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
             }
+#ifdef _OPENMP
         }
     }
-
+#endif
 
     // Locally refine each match by marching up the pyramid
     for (int l = pyramid_levels - 2; l >= 0; --l)
@@ -2402,13 +2407,15 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         const int local_size = 16;
         std::vector<std::vector<Mat>> similarities2(modalities.size());
         std::vector<std::vector<uint16_t>> cluster_counts2(modalities.size());
-
+#ifdef _OPENMP
 #pragma omp parallel
         {
+#endif
             std::vector<Match> match_private;
             std::map<std::vector<int>, temp_storage> xy_templ_id_map_private;
-
+#ifdef _OPENMP
 #pragma omp for nowait
+#endif
             for (int m = 0; m < (int)candidates.size(); ++m){
                 auto& tps = template_structure.templs[candidates[m].template_id];
 
@@ -2520,18 +2527,21 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                     }
                 }
             }
-
+#ifdef _OPENMP
 #pragma omp critical
-        {
-            for(auto& m: xy_templ_id_map_private){
-                xy_templ_id_map[m.first].score = m.second.score;
-                xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
-            }
+            {
+#endif
+                for(auto& m: xy_templ_id_map_private){
+                    xy_templ_id_map[m.first].score = m.second.score;
+                    xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
+                }
 
-            if(!match_private.empty())
-                matches.insert(matches.end(), match_private.begin(), match_private.end());
+                if(!match_private.empty())
+                    matches.insert(matches.end(), match_private.begin(), match_private.end());
+#ifdef _OPENMP
+            }
         }
-        }
+#endif
     }
 }
 
