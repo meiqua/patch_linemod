@@ -2239,130 +2239,145 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 
     std::map<std::vector<int>, temp_storage> xy_templ_id_map;
 
-    for(size_t tree_i=0; tree_i < template_structure.last_level_size; tree_i++){
-        // lowest level
-        auto& templs_lowest = template_structure.templs[tree_i];
-        auto& child = template_structure.templ_forest[tree_i];
-        const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back();
+#pragma omp parallel
+    {
+        std::map<std::vector<int>, temp_storage> xy_templ_id_map_private;
 
-        bool is_valid_templ = true;
-        for(int i=0; i<modalities.size(); i++){
-            if(templs_lowest[i].features.size() < 8) is_valid_templ = false;
-        }
+#pragma omp for nowait
+        for(size_t tree_i=0; tree_i < template_structure.last_level_size; tree_i++){
+            // lowest level
+            auto& templs_lowest = template_structure.templs[tree_i];
+            auto& child = template_structure.templ_forest[tree_i];
+            const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back();
 
-        if(is_valid_templ)
-        { // Compute similarity maps for each modality at lowest pyramid level
-            std::vector<std::vector<Mat>> similarities(modalities.size());
-            std::vector<std::vector<uint16_t>> cluster_counts(modalities.size());
-
-            int lowest_T = T_at_level.back();
-
-            std::vector<int> total_counts(modalities.size(), 0);
-            for (int i = 0; i < (int)modalities.size(); ++i)
-            {
-                const Template &templ = templs_lowest[i];
-                total_counts[i] = templ.clusters;
-                similarity(cluster_counts[i], lowest_lm[i], templ, similarities[i], sizes.back(), lowest_T);
+            bool is_valid_templ = true;
+            for(int i=0; i<modalities.size(); i++){
+                if(templs_lowest[i].features.size() < 8) is_valid_templ = false;
             }
-            cv::Mat nms_candidates = cv::Mat(similarities[0][0].rows, similarities[0][0].cols, CV_32FC1,
-                    cv::Scalar(std::numeric_limits<float>::max()));
 
-            for (int i = 0; i < (int)modalities.size(); ++i)
-            { // min score of two modalities
-                Mat active_count_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_8UC1);
-                Mat active_score_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
-                Mat active_feat_num_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
+            if(is_valid_templ)
+            { // Compute similarity maps for each modality at lowest pyramid level
+                std::vector<std::vector<Mat>> similarities(modalities.size());
+                std::vector<std::vector<uint16_t>> cluster_counts(modalities.size());
 
-                for(int j=0; j<similarities[i].size(); j++){
-                    auto& simi = similarities[i][j];
-                    int feat_count = cluster_counts[i][j];
+                int lowest_T = T_at_level.back();
 
-                    int raw_thresh = int((threshold)*(4 * feat_count)/100);
-
-                    cv::Mat active_mask = simi > raw_thresh;
-
-                    active_count_1mod += active_mask/255;
-
-                    add_16u_8u(active_score_1mod, simi, active_mask);
-
-                    cv::Mat active_unit;
-                    active_mask.convertTo(active_unit, CV_16UC1);
-                    active_feat_num_1mod += active_unit/255*feat_count;
-                }
-
-                for (int r = 0; r < active_count_1mod.rows; ++r)
+                std::vector<int> total_counts(modalities.size(), 0);
+                for (int i = 0; i < (int)modalities.size(); ++i)
                 {
-                    ushort *raw_score = active_score_1mod.ptr<ushort>(r);
-                    ushort *active_feats = active_feat_num_1mod.ptr<ushort>(r);
-                    uchar* active_parts = active_count_1mod.ptr<uchar>(r);
+                    const Template &templ = templs_lowest[i];
+                    total_counts[i] = templ.clusters;
+                    similarity(cluster_counts[i], lowest_lm[i], templ, similarities[i], sizes.back(), lowest_T);
+                }
+                cv::Mat nms_candidates = cv::Mat(similarities[0][0].rows, similarities[0][0].cols, CV_32FC1,
+                        cv::Scalar(std::numeric_limits<float>::max()));
 
-                    float* nms_row = nms_candidates.ptr<float>(r);
-                    for (int c = 0; c < active_count_1mod.cols; ++c)
-                    {
-                        float score = 100.0f/4*raw_score[c]/active_feats[c];
-                        if (active_parts[c] > int(total_counts[i]*active_ratio - 0.001f) && active_parts[c] > 0 &&
-                                (active_parts[c] >= min_active_part || active_parts[c] >= total_counts[i])
-                                && score>threshold)
-                        {
-                            if(score < nms_row[c])
-                                nms_row[c] = score;
-                        }else{
-                            nms_row[c] = 0;
-                        }
+                for (int i = 0; i < (int)modalities.size(); ++i)
+                { // min score of two modalities
+                    Mat active_count_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_8UC1);
+                    Mat active_score_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
+                    Mat active_feat_num_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
+
+                    for(int j=0; j<similarities[i].size(); j++){
+                        auto& simi = similarities[i][j];
+                        int feat_count = cluster_counts[i][j];
+
+                        int raw_thresh = int((threshold)*(4 * feat_count)/100);
+
+                        cv::Mat active_mask = simi > raw_thresh;
+
+                        active_count_1mod += active_mask/255;
+
+                        add_16u_8u(active_score_1mod, simi, active_mask);
+
+                        cv::Mat active_unit;
+                        active_mask.convertTo(active_unit, CV_16UC1);
+                        active_feat_num_1mod += active_unit/255*feat_count;
                     }
-                }
-            }
 
-            // Find initial matches, nms
-            int nms_kernel_size = 5;
-            for (int r = nms_kernel_size/2; r < similarities[0][0].rows-nms_kernel_size/2; ++r)
-            {
-                float* nms_row = nms_candidates.ptr<float>(r);
-                for (int c = nms_kernel_size/2; c < similarities[0][0].cols-nms_kernel_size/2; ++c)
-                {
-                    float score = nms_row[c];
-                    if(score<=0) continue;
+                    for (int r = 0; r < active_count_1mod.rows; ++r)
+                    {
+                        ushort *raw_score = active_score_1mod.ptr<ushort>(r);
+                        ushort *active_feats = active_feat_num_1mod.ptr<ushort>(r);
+                        uchar* active_parts = active_count_1mod.ptr<uchar>(r);
 
-                    bool is_max = true;
-                    for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
-                        for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
-                            if(r_offset == 0 && c_offset == 0) continue;
-
-                            if(score < nms_candidates.at<float>(r+r_offset, c+c_offset)){
-                                score = 0;
-                                is_max = false;
-                                goto break2;
+                        float* nms_row = nms_candidates.ptr<float>(r);
+                        for (int c = 0; c < active_count_1mod.cols; ++c)
+                        {
+                            float score = 100.0f/4*raw_score[c]/active_feats[c];
+                            if (active_parts[c] > int(total_counts[i]*active_ratio - 0.001f) && active_parts[c] > 0 &&
+                                    (active_parts[c] >= min_active_part || active_parts[c] >= total_counts[i])
+                                    && score>threshold)
+                            {
+                                if(score < nms_row[c])
+                                    nms_row[c] = score;
+                            }else{
+                                nms_row[c] = 0;
                             }
                         }
                     }
-                    break2:
+                }
 
-                    if(is_max){
+                // Find initial matches, nms
+                int nms_kernel_size = 5;
+                for (int r = nms_kernel_size/2; r < similarities[0][0].rows-nms_kernel_size/2; ++r)
+                {
+                    float* nms_row = nms_candidates.ptr<float>(r);
+                    for (int c = nms_kernel_size/2; c < similarities[0][0].cols-nms_kernel_size/2; ++c)
+                    {
+                        float score = nms_row[c];
+                        if(score<=0) continue;
+
+                        bool is_max = true;
                         for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
                             for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
                                 if(r_offset == 0 && c_offset == 0) continue;
-                                nms_candidates.at<float>(r+r_offset, c+c_offset) = 0;
+
+                                if(score < nms_candidates.at<float>(r+r_offset, c+c_offset)){
+                                    score = 0;
+                                    is_max = false;
+                                    goto break2;
+                                }
+                            }
+                        }
+                        break2:
+
+                        if(is_max){
+                            for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
+                                for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
+                                    if(r_offset == 0 && c_offset == 0) continue;
+                                    nms_candidates.at<float>(r+r_offset, c+c_offset) = 0;
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            for (int r = 0; r < similarities[0][0].rows; ++r)
-            {
-                float* nms_row = nms_candidates.ptr<float>(r);
-                for (int c = 0; c < similarities[0][0].cols; ++c){
-                    if(nms_row[c]>0){
-                        int offset = lowest_T / 2 + (lowest_T % 2 - 1);
-                        int x = c * lowest_T + offset;
-                        int y = r * lowest_T + offset;
-                        xy_templ_id_map[{x, y}].score = nms_row[c];
-                        xy_templ_id_map[{x, y}].tid.insert(child.begin(), child.end());
+                for (int r = 0; r < similarities[0][0].rows; ++r)
+                {
+                    float* nms_row = nms_candidates.ptr<float>(r);
+                    for (int c = 0; c < similarities[0][0].cols; ++c){
+                        if(nms_row[c]>0){
+                            int offset = lowest_T / 2 + (lowest_T % 2 - 1);
+                            int x = c * lowest_T + offset;
+                            int y = r * lowest_T + offset;
+                            xy_templ_id_map_private[{x, y}].score = nms_row[c];
+                            xy_templ_id_map_private[{x, y}].tid.insert(child.begin(), child.end());
+                        }
                     }
                 }
             }
         }
+
+#pragma omp critical
+        {
+            for(auto& m: xy_templ_id_map_private){
+                xy_templ_id_map[m.first].score = m.second.score;
+                xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
+            }
+        }
     }
+
 
     // Locally refine each match by marching up the pyramid
     for (int l = pyramid_levels - 2; l >= 0; --l)
@@ -2388,116 +2403,134 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         std::vector<std::vector<Mat>> similarities2(modalities.size());
         std::vector<std::vector<uint16_t>> cluster_counts2(modalities.size());
 
-        for (int m = 0; m < (int)candidates.size(); ++m){
-            auto& tps = template_structure.templs[candidates[m].template_id];
+#pragma omp parallel
+        {
+            std::vector<Match> match_private;
+            std::map<std::vector<int>, temp_storage> xy_templ_id_map_private;
 
-            bool is_valid_templ = true;
-            for(int i=0; i<modalities.size(); i++){
-                if(tps[i].features.size() < 8) is_valid_templ = false;
-            }
-            if(!is_valid_templ) continue;
+#pragma omp for nowait
+            for (int m = 0; m < (int)candidates.size(); ++m){
+                auto& tps = template_structure.templs[candidates[m].template_id];
 
-            std::vector<int> total_counts2(modalities.size());
-            Match &match2 = candidates[m];
-            int x = match2.x * 2 + 1; /// @todo Support other pyramid distance
-            int y = match2.y * 2 + 1;
+                bool is_valid_templ = true;
+                for(int i=0; i<modalities.size(); i++){
+                    if(tps[i].features.size() < 8) is_valid_templ = false;
+                }
+                if(!is_valid_templ) continue;
 
-            // Require 8 (reduced) row/cols to the up/left
-            x = std::max(x, border);
-            y = std::max(y, border);
+                std::vector<int> total_counts2(modalities.size());
+                Match &match2 = candidates[m];
+                int x = match2.x * 2 + 1; /// @todo Support other pyramid distance
+                int y = match2.y * 2 + 1;
 
-            // Require 8 (reduced) row/cols to the down/left, plus the template size
-            x = std::min(x, size.width - tps[0].width - border);
-            y = std::min(y, size.height - tps[0].height - border);
-            x = std::min(x, size.width - tps[1].width - border);
-            y = std::min(y, size.height - tps[1].height - border);
+                // Require 8 (reduced) row/cols to the up/left
+                x = std::max(x, border);
+                y = std::max(y, border);
 
-            for (int i = 0; i < (int)modalities.size(); ++i)
-            {
-                const Template &templ = tps[i];
-                total_counts2[i] = templ.clusters;
-                similarityLocal(cluster_counts2[i], lms[i], templ, similarities2[i], size, T, Point(x, y));
-            }
+                // Require 8 (reduced) row/cols to the down/left, plus the template size
+                x = std::min(x, size.width - tps[0].width - border);
+                y = std::min(y, size.height - tps[0].height - border);
+                x = std::min(x, size.width - tps[1].width - border);
+                y = std::min(y, size.height - tps[1].height - border);
 
-            float best_score = 0;
-            int best_r = -1, best_c = -1;
-
-            std::vector<cv::Mat> score_2mod(modalities.size());
-            for (int i = 0; i < (int)modalities.size(); ++i){
-                Mat active_count2 = Mat::zeros(local_size, local_size, CV_8UC1);
-                Mat active_feat_num2 = Mat::zeros(local_size, local_size, CV_16UC1);
-                Mat active_score2 = Mat::zeros(local_size, local_size, CV_16UC1);
-
-                for(int j=0; j<total_counts2[i]; j++){
-                    auto& simi = similarities2[i][j];
-                    uint16_t feat_count = cluster_counts2[i][j];
-
-                    uint16_t raw_thresh = uint16_t((threshold)*(4 * feat_count)/100);
-                    cv::Mat active_mask = simi > raw_thresh;
-
-                    active_count2 += active_mask/255;
-
-                    add_16u_8u(active_score2, simi, active_mask);
-
-                    cv::Mat active_unit;
-                    active_mask.convertTo(active_unit, CV_16UC1);
-                    active_feat_num2 += active_unit/255*feat_count;
+                for (int i = 0; i < (int)modalities.size(); ++i)
+                {
+                    const Template &templ = tps[i];
+                    total_counts2[i] = templ.clusters;
+                    similarityLocal(cluster_counts2[i], lms[i], templ, similarities2[i], size, T, Point(x, y));
                 }
 
-                score_2mod[i] = cv::Mat(local_size, local_size, CV_32FC1, cv::Scalar(0));
-                for (int r = 0; r < local_size; ++r)
-                {
-                    ushort* active_score2_row = active_score2.ptr<ushort>(r);
-                    ushort* active_feat_num2_row = active_feat_num2.ptr<ushort>(r);
-                    uchar* active_count2_row = active_count2.ptr<uchar>(r);
-                    float* score_2mod_row = score_2mod[i].ptr<float>(r);
-                    for (int c = 0; c < local_size; ++c)
+                float best_score = 0;
+                int best_r = -1, best_c = -1;
+
+                std::vector<cv::Mat> score_2mod(modalities.size());
+                for (int i = 0; i < (int)modalities.size(); ++i){
+                    Mat active_count2 = Mat::zeros(local_size, local_size, CV_8UC1);
+                    Mat active_feat_num2 = Mat::zeros(local_size, local_size, CV_16UC1);
+                    Mat active_score2 = Mat::zeros(local_size, local_size, CV_16UC1);
+
+                    for(int j=0; j<total_counts2[i]; j++){
+                        auto& simi = similarities2[i][j];
+                        uint16_t feat_count = cluster_counts2[i][j];
+
+                        uint16_t raw_thresh = uint16_t((threshold)*(4 * feat_count)/100);
+                        cv::Mat active_mask = simi > raw_thresh;
+
+                        active_count2 += active_mask/255;
+
+                        add_16u_8u(active_score2, simi, active_mask);
+
+                        cv::Mat active_unit;
+                        active_mask.convertTo(active_unit, CV_16UC1);
+                        active_feat_num2 += active_unit/255*feat_count;
+                    }
+
+                    score_2mod[i] = cv::Mat(local_size, local_size, CV_32FC1, cv::Scalar(0));
+                    for (int r = 0; r < local_size; ++r)
                     {
-                        if (active_count2_row[c]> int(total_counts2[i]*active_ratio - 0.001f) && active_count2_row[c] > 0
-                                && (active_count2_row[c] >= min_active_part || active_count2_row[c] >= total_counts2[i]))
+                        ushort* active_score2_row = active_score2.ptr<ushort>(r);
+                        ushort* active_feat_num2_row = active_feat_num2.ptr<ushort>(r);
+                        uchar* active_count2_row = active_count2.ptr<uchar>(r);
+                        float* score_2mod_row = score_2mod[i].ptr<float>(r);
+                        for (int c = 0; c < local_size; ++c)
                         {
-                            score_2mod_row[c] = 100.0f/4*
-                                    active_score2_row[c]
-                                    /active_feat_num2_row[c];
+                            if (active_count2_row[c]> int(total_counts2[i]*active_ratio - 0.001f) && active_count2_row[c] > 0
+                                    && (active_count2_row[c] >= min_active_part || active_count2_row[c] >= total_counts2[i]))
+                            {
+                                score_2mod_row[c] = 100.0f/4*
+                                        active_score2_row[c]
+                                        /active_feat_num2_row[c];
+                            }
                         }
                     }
                 }
-            }
 
-            cv::Mat min_score(score_2mod[0].size(), CV_32FC1, cv::Scalar(std::numeric_limits<float>::max()));
-            for(auto& score: score_2mod){
-                min_score = cv::min(min_score, score);
-            }
+                cv::Mat min_score(score_2mod[0].size(), CV_32FC1, cv::Scalar(std::numeric_limits<float>::max()));
+                for(auto& score: score_2mod){
+                    min_score = cv::min(min_score, score);
+                }
 
-            for (int r = 0; r < local_size; ++r)
-            {
-                float* score_2mod_row = min_score.ptr<float>(r);
-                for (int c = 0; c < local_size; ++c)
+                for (int r = 0; r < local_size; ++r)
                 {
-                    if(score_2mod_row[c] > best_score){
-                        best_score = score_2mod_row[c];
-                        best_c = c;
-                        best_r = r;
+                    float* score_2mod_row = min_score.ptr<float>(r);
+                    for (int c = 0; c < local_size; ++c)
+                    {
+                        if(score_2mod_row[c] > best_score){
+                            best_score = score_2mod_row[c];
+                            best_c = c;
+                            best_r = r;
+                        }
+                    }
+                }
+
+                // Update current match
+                match2.similarity = best_score;
+                match2.x = (x / T - 8 + best_c) * T + offset;
+                match2.y = (y / T - 8 + best_r) * T + offset;
+
+                if(match2.x < 0 || match2.y <0) match2.similarity = 0;
+
+                if(match2.similarity > 0){
+
+                    if(l>0){  // prepare for next level
+                        auto& child = template_structure.templ_forest[match2.template_id];
+                        xy_templ_id_map_private[{match2.x, match2.y}].tid.insert(child.begin(), child.end());
+                    }else{
+                        match_private.push_back(match2);
                     }
                 }
             }
 
-            // Update current match
-            match2.similarity = best_score;
-            match2.x = (x / T - 8 + best_c) * T + offset;
-            match2.y = (y / T - 8 + best_r) * T + offset;
-
-            if(match2.x < 0 || match2.y <0) match2.similarity = 0;
-
-            if(match2.similarity > 0){
-
-                if(l>0){  // prepare for next level
-                    auto& child = template_structure.templ_forest[match2.template_id];
-                    xy_templ_id_map[{match2.x, match2.y}].tid.insert(child.begin(), child.end());
-                }else{
-                    matches.push_back(match2);
-                }
+#pragma omp critical
+        {
+            for(auto& m: xy_templ_id_map_private){
+                xy_templ_id_map[m.first].score = m.second.score;
+                xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
             }
+
+            if(!match_private.empty())
+                matches.insert(matches.end(), match_private.begin(), match_private.end());
+        }
         }
     }
 }
@@ -2951,6 +2984,53 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
             higher_hit = higher_hit_next;
             std::fill(higher_hit_next.begin(), higher_hit_next.end(), 0);
         }
+
+        const bool view_map = false;
+        if(view_map){
+            auto model_pcd = std::make_shared<open3d::PointCloud>();
+
+            const int top10 = 10;
+            int cur_m = 0;
+            for(auto m: wanted){
+                int cur_cluster = nc_maps[level_iter].node2cluster[m.first];
+                auto cur_nodes = nc_maps[level_iter].cluster2node[cur_cluster];
+
+                std::vector<int> next_clusters;
+                for(int behalf: m.second){
+                    next_clusters.push_back(nc_maps[level_iter-1].node2cluster[behalf]);
+                }
+                std::vector<std::vector<int>> next_nodes_v;
+                for(int cluster: next_clusters){
+                    next_nodes_v.push_back(nc_maps[level_iter-1].cluster2node[cluster]);
+                }
+
+                {
+                    cv::Vec3f color = {rand()/float(RAND_MAX),
+                                       rand()/float(RAND_MAX), rand()/float(RAND_MAX)};
+                    for(int node: cur_nodes){
+                        auto pt = pts_test[node];
+                        model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800 + 1);
+                        model_pcd->colors_.emplace_back(color[0], color[1], color[2]);
+                    }
+                }
+                for(auto nodes: next_nodes_v){
+                    cv::Vec3f color = {rand()/float(RAND_MAX),
+                                       rand()/float(RAND_MAX), rand()/float(RAND_MAX)};
+                    for(int node: nodes){
+                        auto pt = pts_test2[node];
+                        model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800 + 1);
+                        model_pcd->colors_.emplace_back(color[0], color[1], color[2]);
+                    }
+                }
+
+                if(cur_m < top10)
+                    open3d::DrawGeometries({model_pcd});
+
+                cur_m++;
+            }
+
+            open3d::DrawGeometries({model_pcd});
+        }
     }
 
     std::vector<int> render_id_v; // later we will render & make templates from those id
@@ -3176,7 +3256,7 @@ std::vector<Template> Detector::render_templ(Mat &m4f, int level, PoseRenderer& 
     std::vector<Template> templs(2);
     for(int i=0; i<2; i++){
         Ptr<QuantizedPyramid> qp = modalities[i]->process(dep_masks[0]);
-        if(!qp->extractTemplate(templs[i])) return templs;
+        if(!qp->extractTemplate(templs[i])) return std::vector<Template>(2);
     }
     cropTemplates(templs, clusters);
     return templs;

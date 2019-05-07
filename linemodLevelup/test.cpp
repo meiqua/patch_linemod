@@ -407,7 +407,8 @@ std::vector<Vec3f> hinter_ball(int level, float radius){
 void build_templ_structure_test(){
     auto pose_structure = hinter_sampling(4, 800, 0, 2*CV_PI, -0.5*CV_PI, 0.5*CV_PI, -CV_PI, CV_PI, CV_PI*10);
     linemodLevelup::Detector detector;
-    detector.pts_test = hinter_ball(4, 800);
+    detector.pts_test = hinter_ball(4, 400);
+    detector.pts_test2 = hinter_ball(4, 800);
 
     string model_path = "/home/meiqua/patch_linemod/public/datasets/hinterstoisser/models/obj_06.ply";
     PoseRenderer renderer(model_path);

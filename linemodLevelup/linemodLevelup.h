@@ -302,7 +302,7 @@ public:
     std::map<std::string, TemplateStructure> class_templs_structure;
 
     // for test
-    std::vector<cv::Vec3f> pts_test;
+    std::vector<cv::Vec3f> pts_test, pts_test2;
 protected:
 
     int clusters;
