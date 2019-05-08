@@ -5,6 +5,9 @@
 #include <assert.h>
 #include <queue>
 #include <set>
+#include "pose_tree.h"
+
+
 #include "Open3D/Core/Registration/Registration.h"
 #include "Open3D/Core/Geometry/Image.h"
 #include "Open3D/Core/Camera/PinholeCameraIntrinsic.h"
@@ -1961,6 +1964,22 @@ std::vector<Match> Detector::match(const std::vector<Mat> &sources__, float thre
     return matches_final;
 }
 
+const std::vector<Template> &Detector::getStructure_Templs(const string &class_id, int template_id) const
+{
+    auto iter = class_templs_structure.find(class_id);
+    assert(iter != class_templs_structure.end());
+    assert((*iter).second.templs.size() > template_id);
+    return (*iter).second.templs[template_id];
+}
+
+const Mat &Detector::getStructure_T(const string &class_id, int template_id) const
+{
+    auto iter = class_templs_structure.find(class_id);
+    assert(iter != class_templs_structure.end());
+    assert((*iter).second.templ_Ts.size() > template_id);
+    return (*iter).second.templ_Ts[template_id];
+}
+
 // Used to filter out weak matches
 struct MatchPredicate
 {
@@ -1976,254 +1995,6 @@ static cv::Mat add_16u_8u(cv::Mat& simi_sum, const cv::Mat& simi, const cv::Mat&
     simi_sum += active_score_local;
     return simi_sum;
 };
-
-void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
-                          const std::vector<Size> &sizes,
-                          float threshold, float active_ratio, std::vector<Match> &matches,
-                          const std::string &class_id,
-                          const std::vector<TemplatePyramid> &template_pyramids) const
-{
-    constexpr int min_active_part = 3; // better for small objs?
-#pragma omp declare reduction \
-    (omp_insert: std::vector<Match>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
-
-//#pragma omp parallel for reduction(omp_insert:matches)
-    for (size_t template_id = 0; template_id < template_pyramids.size(); ++template_id)
-    {
-        const TemplatePyramid &tp = template_pyramids[template_id];
-        const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back();
-
-        std::vector<Match> candidates;
-        { // Compute similarity maps for each modality at lowest pyramid level
-            std::vector<std::vector<Mat>> similarities(modalities.size());
-            std::vector<std::vector<uint16_t>> cluster_counts(modalities.size());
-
-            int lowest_start = static_cast<int>(tp.size() - modalities.size());
-            int lowest_T = T_at_level.back();
-
-            std::vector<int> total_counts(modalities.size(), 0);
-            for (int i = 0; i < (int)modalities.size(); ++i)
-            {
-                const Template &templ = tp[lowest_start + i];
-                total_counts[i] = templ.clusters;
-                similarity(cluster_counts[i], lowest_lm[i], templ, similarities[i], sizes.back(), lowest_T);
-            }
-            cv::Mat nms_candidates = cv::Mat(similarities[0][0].rows, similarities[0][0].cols, CV_32FC1,
-                    cv::Scalar(std::numeric_limits<float>::max()));
-
-            for (int i = 0; i < (int)modalities.size(); ++i)
-            { // min score of two modalities
-                Mat active_count_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_8UC1);
-                Mat active_score_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
-                Mat active_feat_num_1mod = Mat::zeros(similarities[0][0].rows, similarities[0][0].cols, CV_16UC1);
-
-                for(int j=0; j<similarities[i].size(); j++){
-                    auto& simi = similarities[i][j];
-                    int feat_count = cluster_counts[i][j];
-
-                    int raw_thresh = int((threshold)*(4 * feat_count)/100);
-
-                    cv::Mat active_mask = simi > raw_thresh;
-
-                    active_count_1mod += active_mask/255;
-
-                    add_16u_8u(active_score_1mod, simi, active_mask);
-
-                    cv::Mat active_unit;
-                    active_mask.convertTo(active_unit, CV_16UC1);
-                    active_feat_num_1mod += active_unit/255*feat_count;
-                }
-
-                for (int r = 0; r < active_count_1mod.rows; ++r)
-                {
-                    ushort *raw_score = active_score_1mod.ptr<ushort>(r);
-                    ushort *active_feats = active_feat_num_1mod.ptr<ushort>(r);
-                    uchar* active_parts = active_count_1mod.ptr<uchar>(r);
-
-                    float* nms_row = nms_candidates.ptr<float>(r);
-                    for (int c = 0; c < active_count_1mod.cols; ++c)
-                    {
-                        float score = 100.0f/4*raw_score[c]/active_feats[c];
-                        if (active_parts[c] > int(total_counts[i]*active_ratio - 0.001f) && active_parts[c] > 0 &&
-                                (active_parts[c] >= min_active_part || active_parts[c] >= total_counts[i])
-                                && score>threshold)
-                        {
-                            if(score < nms_row[c])
-                                nms_row[c] = score;
-                        }else{
-                            nms_row[c] = 0;
-                        }
-                    }
-                }
-            }
-
-            // Find initial matches, nms
-            int nms_kernel_size = 5;
-            for (int r = nms_kernel_size/2; r < similarities[0][0].rows-nms_kernel_size/2; ++r)
-            {
-                float* nms_row = nms_candidates.ptr<float>(r);
-                for (int c = nms_kernel_size/2; c < similarities[0][0].cols-nms_kernel_size/2; ++c)
-                {
-                    float score = nms_row[c];
-                    if(score<=0) continue;
-
-                    bool is_max = true;
-                    for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
-                        for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
-                            if(r_offset == 0 && c_offset == 0) continue;
-
-                            if(score < nms_candidates.at<float>(r+r_offset, c+c_offset)){
-                                score = 0;
-                                is_max = false;
-                                break;
-                            }
-                        }
-                    }
-
-                    if(is_max){
-                        for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
-                            for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
-                                if(r_offset == 0 && c_offset == 0) continue;
-                                nms_candidates.at<float>(r+r_offset, c+c_offset) = 0;
-                            }
-                        }
-                    }
-                }
-            }
-
-            for (int r = 0; r < similarities[0][0].rows; ++r)
-            {
-                float* nms_row = nms_candidates.ptr<float>(r);
-                for (int c = 0; c < similarities[0][0].cols; ++c){
-                    if(nms_row[c]>0){
-                        int offset = lowest_T / 2 + (lowest_T % 2 - 1);
-                        int x = c * lowest_T + offset;
-                        int y = r * lowest_T + offset;
-                        candidates.push_back(Match(x, y, nms_row[c], class_id, static_cast<int>(template_id)));
-                    }
-                }
-            }
-        }
-
-        // Locally refine each match by marching up the pyramid
-        for (int l = pyramid_levels - 2; l >= 0; --l)
-        {
-            const std::vector<LinearMemories> &lms = lm_pyramid[l];
-            int T = T_at_level[l];
-            int start = static_cast<int>(l * modalities.size());
-            Size size = sizes[l];
-            int border = 8 * T;
-            int offset = T / 2 + (T % 2 - 1);
-            int max_x = size.width - tp[start].width - border;
-            int max_y = size.height - tp[start].height - border;
-
-            const int local_size = 16;
-            std::vector<std::vector<Mat>> similarities2(modalities.size());
-            std::vector<std::vector<uint16_t>> cluster_counts2(modalities.size());
-
-            for (int m = 0; m < (int)candidates.size(); ++m)
-            {
-                std::vector<int> total_counts2(modalities.size());
-
-                Match &match2 = candidates[m];
-                int x = match2.x * 2 + 1; /// @todo Support other pyramid distance
-                int y = match2.y * 2 + 1;
-
-                // Require 8 (reduced) row/cols to the up/left
-                x = std::max(x, border);
-                y = std::max(y, border);
-
-                // Require 8 (reduced) row/cols to the down/left, plus the template size
-                x = std::min(x, max_x);
-                y = std::min(y, max_y);
-
-                for (int i = 0; i < (int)modalities.size(); ++i)
-                {
-                    const Template &templ = tp[start + i];
-                    total_counts2[i] = templ.clusters;
-                    similarityLocal(cluster_counts2[i], lms[i], templ, similarities2[i], size, T, Point(x, y));
-                }
-
-                float best_score = 0;
-                int best_r = -1, best_c = -1;
-
-                std::vector<cv::Mat> score_2mod(modalities.size());
-                for (int i = 0; i < (int)modalities.size(); ++i){
-                    Mat active_count2 = Mat::zeros(local_size, local_size, CV_8UC1);
-                    Mat active_feat_num2 = Mat::zeros(local_size, local_size, CV_16UC1);
-                    Mat active_score2 = Mat::zeros(local_size, local_size, CV_16UC1);
-
-                    for(int j=0; j<total_counts2[i]; j++){
-                        auto& simi = similarities2[i][j];
-                        uint16_t feat_count = cluster_counts2[i][j];
-
-                        uint16_t raw_thresh = uint16_t((threshold)*(4 * feat_count)/100);
-                        cv::Mat active_mask = simi > raw_thresh;
-
-                        active_count2 += active_mask/255;
-
-                        add_16u_8u(active_score2, simi, active_mask);
-
-                        cv::Mat active_unit;
-                        active_mask.convertTo(active_unit, CV_16UC1);
-                        active_feat_num2 += active_unit/255*feat_count;
-                    }
-
-                    score_2mod[i] = cv::Mat(local_size, local_size, CV_32FC1, cv::Scalar(0));
-                    for (int r = 0; r < local_size; ++r)
-                    {
-                        ushort* active_score2_row = active_score2.ptr<ushort>(r);
-                        ushort* active_feat_num2_row = active_feat_num2.ptr<ushort>(r);
-                        uchar* active_count2_row = active_count2.ptr<uchar>(r);
-                        float* score_2mod_row = score_2mod[i].ptr<float>(r);
-                        for (int c = 0; c < local_size; ++c)
-                        {
-                            if (active_count2_row[c]> int(total_counts2[i]*active_ratio - 0.001f) && active_count2_row[c] > 0
-                                    && (active_count2_row[c] >= min_active_part || active_count2_row[c] >= total_counts2[i]))
-                            {
-                                score_2mod_row[c] = 100.0f/4*
-                                        active_score2_row[c]
-                                        /active_feat_num2_row[c];
-                            }
-                        }
-                    }
-                }
-
-                cv::Mat min_score(score_2mod[0].size(), CV_32FC1, cv::Scalar(std::numeric_limits<float>::max()));
-                for(auto& score: score_2mod){
-                    min_score = cv::min(min_score, score);
-                }
-
-                for (int r = 0; r < local_size; ++r)
-                {
-                    float* score_2mod_row = min_score.ptr<float>(r);
-                    for (int c = 0; c < local_size; ++c)
-                    {
-                        if(score_2mod_row[c] > best_score){
-                            best_score = score_2mod_row[c];
-                            best_c = c;
-                            best_r = r;
-                        }
-                    }
-                }
-
-                // Update current match
-                match2.similarity = best_score;
-                match2.x = (x / T - 8 + best_c) * T + offset;
-                match2.y = (y / T - 8 + best_r) * T + offset;
-
-                if(match2.x < 0 || match2.y <0) match2.similarity = 0;
-            }
-
-            // Filter out any matches that drop below the similarity threshold
-            std::vector<Match>::iterator new_end = std::remove_if(candidates.begin(), candidates.end(),
-                                                                  MatchPredicate(threshold));
-            candidates.erase(new_end, candidates.end());
-        }
-
-        matches.insert(matches.end(), candidates.begin(), candidates.end());
-    }
-}
 
 void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_pyramid,
                                        const std::vector<Size> &sizes, float threshold,
@@ -2545,116 +2316,8 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
     }
 }
 
-
-std::vector<int> Detector::addTemplate(const std::vector<Mat> &sources, const std::string &class_id,
-                                       const Mat object_mask, const std::vector<int> dep_anchors)
-{
-    std::vector<int> successes;
-
-    int num_modalities = static_cast<int>(modalities.size());
-    std::vector<TemplatePyramid> &template_pyramids = class_templates[class_id];
-    int template_id = static_cast<int>(template_pyramids.size());
-
-    TemplatePyramid tp;
-    tp.resize(num_modalities * pyramid_levels);
-
-    // For each modality...
-    for (int i = 0; i < num_modalities; ++i)
-    {
-        // Extract a template at each pyramid level
-        Ptr<QuantizedPyramid> qp = modalities[i]->process(sources, object_mask);
-        for (int l = 0; l < pyramid_levels; ++l)
-        {
-            /// @todo Could do mask subsampling here instead of in pyrDown()
-            if (l > 0)
-                qp->pyrDown();
-
-            bool success = qp->extractTemplate(tp[l * num_modalities + i]);
-            if (!success){
-                if(dep_anchors.size() == 0){
-                    successes.push_back(-1);
-                }else{
-                    for(int i=0; i<dep_anchors.size(); i++){
-                        successes.push_back(-1);
-                    }
-                }
-                return successes;
-            }
-        }
-    }
-    successes.push_back(template_id);
-
-    Rect bb = cropTemplates(tp, clusters);
-    template_pyramids.push_back(tp);
-
-    if(dep_anchors.size() > 1){
-        std::string idx_without_dep;
-        auto idx = class_id.find_last_of('_');
-        idx_without_dep = class_id.substr(0, idx);
-
-        for(size_t i=1; i<dep_anchors.size(); i++){
-            int dep = dep_anchors[i];
-            float scale = float(dep_anchors[0])/dep;
-            std::string new_dep_class = idx_without_dep + "_" + std::to_string(dep);
-            std::vector<TemplatePyramid> &new_pyramids = class_templates[new_dep_class];
-
-            TemplatePyramid tp_new;
-            for(auto templ: tp){
-                for(auto& f: templ.features){
-                    f.x = int(f.x*scale);
-                    f.y = int(f.y*scale);
-                }
-                templ.height = int(templ.height*scale);
-                templ.width = int(templ.width*scale);
-                templ.tl_x = int(templ.tl_x*scale);
-                templ.tl_y = int(templ.tl_y*scale);
-
-                // nms to avoid features too close
-                int nms_kernel_size = 5;
-                std::set<int> invalid_id_set;
-                int cols = templ.width + 10; // larger is OK
-                auto rc2id = [cols](int r, int c){return (r*cols+c);};
-
-                auto new_templ = templ;
-                new_templ.features.clear();
-
-                for(auto& f: templ.features){
-                    if(invalid_id_set.count(rc2id(f.y, f.x)) == 0){
-                        new_templ.features.push_back(f);
-
-                        for(int y_offset = -nms_kernel_size/2; y_offset <= nms_kernel_size/2; y_offset++){
-                            for(int x_offset = -nms_kernel_size/2; x_offset <= nms_kernel_size/2; x_offset++){
-                                //                            if(y_offset == 0 && x_offset == 0) continue;
-                                invalid_id_set.insert(rc2id(f.y+y_offset, f.x+x_offset));
-                            }
-                        }
-                    }
-                }
-                if(new_templ.features.size() >= (num_features >> templ.pyramid_level)){
-                    // min num features requirement
-                    tp_new.push_back(new_templ);
-                }else{
-                    for(;i<dep_anchors.size(); i++){
-                        successes.push_back(-1);
-                    }
-                    return successes;
-                }
-            }
-            successes.push_back(static_cast<int>(new_pyramids.size()));
-            new_pyramids.push_back(tp_new);
-        }
-    }
-    return successes;
-}
-const std::vector<Template> &Detector::getTemplates(const std::string &class_id, int template_id) const
-{
-    auto i = class_templs_structure.find(class_id);
-    return i->second.templs[template_id];
-}
-
 void Detector::read(const FileNode &fn)
 {
-    class_templates.clear();
     pyramid_levels = fn["pyramid_levels"];
     clusters = fn["clusters"];
     fn["T"] >> T_at_level;
@@ -2731,10 +2394,17 @@ std::string Detector::readClass(const FileNode &fn, const std::string &class_id_
     TemplateStructure &tps = v.second;
     int expected_id = 0;
 
+    FileNode ts_fn = fn["templ_Ts"];
+    tps.templ_Ts.resize(ts_fn.size());
+    FileNodeIterator ts_it = ts_fn.begin(), ts_it_end = ts_fn.end();
+    for (expected_id = 0; ts_it != ts_it_end; ++ts_it, ++expected_id){
+        (*ts_it) >> tps.templ_Ts[expected_id];
+    }
+
     FileNode tps_fn = fn["templs"];
     tps.templs.resize(tps_fn.size());
     FileNodeIterator tps_it = tps_fn.begin(), tps_it_end = tps_fn.end();
-    for (; tps_it != tps_it_end; ++tps_it, ++expected_id)
+    for (expected_id = 0; tps_it != tps_it_end; ++tps_it, ++expected_id)
     {
         FileNode templates_fn = (*tps_it)["templates"];
         tps.templs[expected_id].resize(templates_fn.size());
@@ -2775,6 +2445,16 @@ void Detector::writeClass(const std::string &class_id, FileStorage &fs) const
         fs << modalities[i]->name();
     fs << "]"; // modalities
     fs << "last_level_size" << it->second.last_level_size;
+
+    fs << "templ_Ts"
+       << "[";
+    for (size_t i = 0; i < it->second.templ_Ts.size(); ++i)
+    {
+        const auto &tp = it->second.templ_Ts[i];
+        fs << tp;
+    }
+    fs << "]";
+
     fs << "templs"
        << "[";
     for (size_t i = 0; i < it->second.templs.size(); ++i)
@@ -2787,12 +2467,12 @@ void Detector::writeClass(const std::string &class_id, FileStorage &fs) const
         {
             fs << "{";
             tp[j].write(fs);
-            fs << "}"; // current template
+            fs << "}";
         }
-        fs << "]"; // templates
-        fs << "}"; // current pyramid
+        fs << "]";
+        fs << "}";
     }
-    fs << "]"; // pyramids
+    fs << "]";
 
     fs << "forest";
     fs << "[";
@@ -2828,7 +2508,7 @@ void Detector::readClasses(const std::vector<std::string> &class_ids,
 
 void Detector::writeClasses(const std::string &format) const
 {
-    TemplatesMap::const_iterator it = class_templates.begin(), it_end = class_templates.end();
+    auto it = class_templs_structure.begin(), it_end = class_templs_structure.end();
     for (; it != it_end; ++it)
     {
         const String &class_id = it->first;
@@ -2859,7 +2539,6 @@ void Match::write(FileStorage &fs) const
 } // namespace linemodLevelup
 
 
-
 namespace linemodLevelup{
 Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &structure, PoseRenderer &renderer)
 {
@@ -2869,6 +2548,7 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
     Detector::TemplateStructure templ_structure;
     auto& templ_forest = templ_structure.templ_forest;
     auto& templ_v = templ_structure.templs;
+    auto& templ_Ts = templ_structure.templ_Ts;
 
     int st_size = structure.Ts.size();
 
@@ -3097,16 +2777,30 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
     }
 
     templ_v.resize(render_id_v.size());
+    templ_Ts.resize(render_id_v.size());
     cout << "total templ: " << render_id_v.size() << endl;
     for(int i=0; i<render_id_v.size(); i++){
         int id = unique2id(render_id_v[i]);
         int level = unique2level(render_id_v[i]);
 
         cout << "render templ: " << i << endl;
+        templ_Ts[i] = structure.Ts[id];
         templ_v[i] = render_templ(structure.Ts[id], level, renderer);
     }
     cout << "build templ sructure success" << endl;
     return templ_structure;
+}
+
+void Detector::add_templs(string class_id, PoseRenderer &renderer, float radius, int level,
+                          float azimuth_range_min, float azimuth_range_max,
+                          float elev_range_min, float elev_range_max,
+                          float tilt_range_min, float tilt_range_max,
+                          float tilt_step)
+{
+    auto pose_structure = hinter_sampling(radius, level, azimuth_range_min, azimuth_range_max,
+                                          elev_range_min, elev_range_max, tilt_range_min, tilt_range_max,
+                                          tilt_step);
+    class_templs_structure[class_id] = build_templ_structure(pose_structure, renderer);
 }
 
 static cv::Rect find_bbox(const cv::Mat& mask){
@@ -3261,7 +2955,7 @@ std::vector<Template> Detector::render_templ(Mat &m4f, int level, PoseRenderer& 
     std::vector<cv::Mat> poses;
     poses.push_back(m4f);
     auto dep_masks = renderer.render_depth_mask(poses, 1, 1 << level);
-    std::swap(dep_masks[0][0],dep_masks[0][1]);
+    std::swap(dep_masks[0][0], dep_masks[0][1]);
 
     std::vector<Template> templs(2);
     for(int i=0; i<2; i++){
@@ -3272,12 +2966,6 @@ std::vector<Template> Detector::render_templ(Mat &m4f, int level, PoseRenderer& 
     return templs;
 }
 }
-
-
-
-
-
-
 
 template<typename _Tp, int _rows, int _cols, int _options, int _maxRows, int _maxCols>
 void eigen2cv(const Eigen::Matrix<_Tp, _rows, _cols, _options, _maxRows, _maxCols>& src, cv::Mat& dst)
@@ -3463,103 +3151,6 @@ void poseRefine::cannyTraceEdge(int rowOffset, int colOffset, int row, int col, 
         cannyTraceEdge ( 1, -1, newRow, newCol, canny_edge, mag_nms);
     }
 };
-
-static cv::Mat get_normal(cv::Mat &depth__, cv::Mat K = cv::Mat())
-{
-    cv::Mat depth;
-    int depth_type = depth__.type();
-    assert(depth_type == CV_16U || depth_type == CV_32S);
-    if(depth_type == CV_32S){
-        depth__.convertTo(depth, CV_16U);
-    }else{
-        depth = depth__;
-    }
-
-    float fx = 530;
-    float fy = 530;
-    if(!K.empty()){
-        assert(K.type() == CV_32F);
-        fx = K.at<float>(0, 0);
-        fy = K.at<float>(1, 1);
-    }
-
-//       cv::medianBlur(depth, depth, 5);
-       cv::Mat normals = cv::Mat(depth.size(), CV_32FC3, cv::Scalar(0));
-       // method from linemod depth modality
-       {
-           cv::Mat src = depth;
-           int distance_threshold = 2000;
-           int difference_threshold = 50;
-
-           const unsigned short *lp_depth = src.ptr<ushort>();
-           cv::Vec3f *lp_normals = normals.ptr<cv::Vec3f>();
-
-           const int l_W = src.cols;
-           const int l_H = src.rows;
-
-           const int l_r = 5; // used to be 7
-           const int l_offset0 = -l_r - l_r * l_W;
-           const int l_offset1 = 0 - l_r * l_W;
-           const int l_offset2 = +l_r - l_r * l_W;
-           const int l_offset3 = -l_r;
-           const int l_offset4 = +l_r;
-           const int l_offset5 = -l_r + l_r * l_W;
-           const int l_offset6 = 0 + l_r * l_W;
-           const int l_offset7 = +l_r + l_r * l_W;
-
-           for (int l_y = l_r; l_y < l_H - l_r - 1; ++l_y)
-           {
-               const unsigned short *lp_line = lp_depth + (l_y * l_W + l_r);
-               cv::Vec3f *lp_norm = lp_normals + (l_y * l_W + l_r);
-
-               for (int l_x = l_r; l_x < l_W - l_r - 1; ++l_x)
-               {
-                   long l_d = lp_line[0];
-                   if (l_d < distance_threshold /*&& l_d > 0*/)
-                   {
-                       // accum
-                       long l_A[4];
-                       l_A[0] = l_A[1] = l_A[2] = l_A[3] = 0;
-                       long l_b[2];
-                       l_b[0] = l_b[1] = 0;
-                       linemodLevelup::accumBilateral(lp_line[l_offset0] - l_d, -l_r, -l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset1] - l_d, 0, -l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset2] - l_d, +l_r, -l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset3] - l_d, -l_r, 0, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset4] - l_d, +l_r, 0, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset5] - l_d, -l_r, +l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset6] - l_d, 0, +l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset7] - l_d, +l_r, +l_r, l_A, l_b, difference_threshold);
-
-                       // solve
-                       long l_det = l_A[0] * l_A[3] - l_A[1] * l_A[1];
-                       long l_ddx = l_A[3] * l_b[0] - l_A[1] * l_b[1];
-                       long l_ddy = -l_A[1] * l_b[0] + l_A[0] * l_b[1];
-
-                       float l_nx = static_cast<float>(fx * l_ddx);
-                       float l_ny = static_cast<float>(fy * l_ddy);
-                       float l_nz = static_cast<float>(-l_det * l_d);
-
-                       float l_sqrt = sqrtf(l_nx * l_nx + l_ny * l_ny + l_nz * l_nz);
-
-                       if (l_sqrt > 0)
-                       {
-                           float l_norminv = 1.0f / (l_sqrt);
-
-                           l_nx *= l_norminv;
-                           l_ny *= l_norminv;
-                           l_nz *= l_norminv;
-
-                           *lp_norm = {l_nx, l_ny, l_nz};
-                       }
-                   }
-                   ++lp_line;
-                   ++lp_norm;
-               }
-           }
-       }
-       return normals;
-}
 
 Mat poseRefine::get_depth_edge(Mat &depth_, int dilute_size)
 {

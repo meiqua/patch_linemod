@@ -57,26 +57,8 @@ public:
     virtual ~QuantizedPyramid(){}
 
     virtual cv::Ptr<QuantizedPyramid> Clone(const cv::Mat& mask_crop, const cv::Rect& bbox) =0;
-
-    /**
-   * \brief Compute quantized image at current pyramid level for online detection.
-   *
-   * \param[out] dst The destination 8-bit image. For each pixel at most one bit is set,
-   *                 representing its classification.
-   */
     virtual void quantize(cv::Mat& dst) const =0;
-    /**
-   * \brief Extract most discriminant features at current pyramid level to form a new template.
-   *
-   * \param[out] templ The new template.
-   */
     virtual bool extractTemplate(Template& templ) const =0;
-
-    /**
-   * \brief Go to the next pyramid level.
-   *
-   * \todo Allow pyramid scale factor other than 2
-   */
     virtual void pyrDown() =0;
 
     virtual void crop_by_mask(const cv::Mat& mask_crop, const cv::Rect& bbox) = 0;
@@ -96,14 +78,6 @@ protected:
         Feature f;
         float score;
     };
-    /**
-   * \brief Choose candidate features so that they are not bunched together.
-   *
-   * \param[in]  candidates   Candidate features sorted by score.
-   * \param[out] features     Destination vector of selected features.
-   * \param[in]  num_features Number of candidates to select.
-   * \param[in]  distance     Hint for desired distance between features.
-   */
     static bool selectScatteredFeatures(const std::vector<Candidate>& candidates,
                                         std::vector<Feature>& features,
                                         size_t num_features, float distance);
@@ -116,14 +90,6 @@ class Modality
 public:
     // Virtual destructor
     virtual ~Modality() {}
-
-    /**
-   * \brief Form a quantized image pyramid from a source image.
-   *
-   * \param[in] src  The source image. Type depends on the modality.
-   * \param[in] mask Optional mask. If not empty, unmasked pixels are set to zero
-   *                 in quantized image and cannot be extracted as features.
-   */
     cv::Ptr<QuantizedPyramid> process(const std::vector<cv::Mat> &src,
                                       const cv::Mat& mask = cv::Mat()) const
     {
@@ -133,14 +99,6 @@ public:
     virtual std::string name() const =0;
     virtual void read(const cv::FileNode& fn) =0;
     virtual void write(cv::FileStorage& fs) const =0;
-
-    /**
-   * \brief Create modality by name.
-   *
-   * The following modality types are supported:
-   * - "ColorGradient"
-   * - "DepthNormal"
-   */
     static cv::Ptr<Modality> create(const std::string& modality_type);
 
 protected:
@@ -168,7 +126,6 @@ protected:
                                                   const cv::Mat& mask) const;
 };
 
-
 class DepthNormal : public Modality
 {
 public:
@@ -192,7 +149,6 @@ protected:
     virtual cv::Ptr<QuantizedPyramid> processImpl(const std::vector<cv::Mat> &src,
                                                   const cv::Mat& mask) const;
 };
-
 
 struct Match
 {
@@ -259,21 +215,17 @@ public:
                              const std::vector<int>& dep_anchors = std::vector<int>(), const int dep_range = 200,
                              const std::vector<cv::Mat>& masks = std::vector<cv::Mat>());
 
-    std::vector<int> addTemplate(const std::vector<cv::Mat>& sources, const std::string& class_id,
-                                 const cv::Mat object_mask = cv::Mat(),
-                                 const std::vector<int> dep_anchors = std::vector<int>());
-
     const std::vector< cv::Ptr<Modality> >& getModalities() const { return modalities; }
 
     int getT(int pyramid_level) const { return T_at_level[pyramid_level]; }
 
     int pyramidLevels() const { return pyramid_levels; }
 
-    const std::vector<Template>& getTemplates(const std::string& class_id, int template_id) const;
+    const std::vector<Template>& getStructure_Templs(const std::string& class_id, int template_id) const;
+    const cv::Mat& getStructure_T(const std::string& class_id, int template_id) const;
 
     int numTemplates() const;
-//    int numTemplates(const std::string& class_id) const;
-    int numClasses() const { return static_cast<int>(class_templates.size()); }
+    int numClasses() const { return static_cast<int>(class_templs_structure.size()); }
 
     std::vector<std::string> classIds() const;
 
@@ -289,14 +241,21 @@ public:
     void readClasses(const std::vector<std::string>& class_ids,
                      const std::string& format = "templates_%s.yml.gz");
     void writeClasses(const std::string& format = "templates_%s.yml.gz") const;
-    void clear_classes(){class_templates.clear();}
+    void clear_classes(){class_templs_structure.clear();}
 
     struct TemplateStructure{
+        std::vector<cv::Mat> templ_Ts;
         std::vector<std::vector<Template>> templs;
         std::vector<std::vector<int>> templ_forest;
         int last_level_size;
     };
     TemplateStructure build_templ_structure(Pose_structure& structure, PoseRenderer& renderer);
+    void add_templs(std::string class_id, PoseRenderer& renderer, float radius, int level = 4,
+                    float azimuth_range_min = 0, float azimuth_range_max = 2*CV_PI,
+                    float elev_range_min = -0.5*CV_PI, float elev_range_max = 0.5*CV_PI,
+                    float tilt_range_min = -CV_PI, float tilt_range_max = CV_PI,
+                    float tilt_step = CV_PI/24);
+
     bool is_similar(cv::Mat& pose1, cv::Mat& pose2, int pyr_level, int stride, PoseRenderer& renderer);
     std::vector<Template> render_templ(cv::Mat& m4f, int level, PoseRenderer &renderer);
     std::map<std::string, TemplateStructure> class_templs_structure;
@@ -311,19 +270,9 @@ protected:
     int pyramid_levels;
     std::vector<int> T_at_level;
 
-    typedef std::vector<Template> TemplatePyramid;
-    typedef std::map<std::string, std::vector<TemplatePyramid> > TemplatesMap;
-    TemplatesMap class_templates;
-
     typedef std::vector<cv::Mat> LinearMemories;
     // Indexed as [pyramid level][modality][quantized label]
     typedef std::vector< std::vector<LinearMemories> > LinearMemoryPyramid;
-
-    void matchClass(const LinearMemoryPyramid& lm_pyramid,
-                    const std::vector<cv::Size>& sizes,
-                    float threshold, float active_ratio, std::vector<Match>& matches,
-                    const std::string& class_id,
-                    const std::vector<TemplatePyramid>& template_pyramids) const;
 
     void matchClass_by_structure(const LinearMemoryPyramid& lm_pyramid,
                     const std::vector<cv::Size>& sizes,
@@ -333,7 +282,6 @@ protected:
 
 };
 
-cv::Ptr<linemodLevelup::Detector> getDefaultLINEMOD();
 }
 
 #endif

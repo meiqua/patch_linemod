@@ -3,6 +3,7 @@
 #include "np2mat/ndarray_converter.h"
 #include "linemodLevelup.h"
 #include "pose_renderer.h"
+
 namespace py = pybind11;
 
 PYBIND11_MODULE(patch_linemod_pybind, m) {
@@ -39,13 +40,10 @@ PYBIND11_MODULE(patch_linemod_pybind, m) {
             .def_readwrite("height",&linemodLevelup::Template::height)
             .def_readwrite("pyramid_level",&linemodLevelup::Template::pyramid_level);
 
-
     py::class_<linemodLevelup::Detector>(m, "Detector")
         .def(py::init<>())
         .def(py::init<std::vector<int>, int>())
         .def(py::init<int, std::vector<int>, int>())
-        .def("addTemplate", &linemodLevelup::Detector::addTemplate, py::arg("sources"), py::arg("class_id"),
-             py::arg("object_mask") = cv::Mat(), py::arg("dep_anchors") = std::vector<int>())
         .def("writeClasses", &linemodLevelup::Detector::writeClasses)
         .def("clear_classes", &linemodLevelup::Detector::clear_classes)
         .def("readClasses", &linemodLevelup::Detector::readClasses)
@@ -54,6 +52,13 @@ PYBIND11_MODULE(patch_linemod_pybind, m) {
         .def("match", &linemodLevelup::Detector::match, py::arg("sources"),
              py::arg("threshold"), py::arg("active_ratio"), py::arg("class_ids"),
              py::arg("dep_anchors"), py::arg("dep_range"), py::arg("masks")=cv::Mat())
-        .def("getTemplates", &linemodLevelup::Detector::getTemplates)
-            .def("numTemplates", &linemodLevelup::Detector::numTemplates);
+        .def("getStructure_Templs", &linemodLevelup::Detector::getStructure_Templs)
+        .def("getStructure_T", &linemodLevelup::Detector::getStructure_T)
+        .def("numTemplates", &linemodLevelup::Detector::numTemplates)
+        .def("add_templs", &linemodLevelup::Detector::add_templs, py::arg("class_id"),
+             py::arg("renderer"), py::arg("radius"), py::arg("level") = 4,
+             py::arg("azimuth_range_min")=0, py::arg("azimuth_range_max")= 2*CV_PI,
+             py::arg("elev_range_min") = -0.5*CV_PI, py::arg("elev_range_max") = 0.5*CV_PI,
+             py::arg("tilt_range_min") = -CV_PI, py::arg("tilt_range_max") = CV_PI,
+             py::arg("tilt_step") = CV_PI/24);
 }

@@ -93,7 +93,6 @@ void train_test(){
     sources.push_back(rgb);
     sources.push_back(depth);
     auto detector = linemodLevelup::Detector(16, {4, 8}, 16);
-    detector.addTemplate(sources, "06_template", depth>0);
 //    detector.writeClasses(prefix+"writeClasses/%s.yaml");
     cout << "break point line: train_test" << endl;
 }
