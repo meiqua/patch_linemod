@@ -10,7 +10,7 @@ class poseRefine{
 public:
     poseRefine(): fitness(-1), inlier_rmse(-1){}
     void process(cv::Mat& sceneDepth, cv::Mat& modelDepth, cv::Mat& sceneK, cv::Mat& modelK,
-                 cv::Mat& modelR, cv::Mat& modelT, int detectX, int detectY, double threshold = 0.007);
+                 cv::Mat& modelT, int detectX, int detectY, double threshold = 0.007);
 
     cv::Mat get_depth_edge(cv::Mat& depth, int dilute_size = 5);
 

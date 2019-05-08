@@ -54,7 +54,6 @@ PYBIND11_MODULE(patch_linemod_pybind, m) {
              py::arg("dep_anchors"), py::arg("dep_range"), py::arg("masks")=cv::Mat())
         .def("getStructure_Templs", &linemodLevelup::Detector::getStructure_Templs)
         .def("getStructure_T", &linemodLevelup::Detector::getStructure_T)
-        .def("numTemplates", &linemodLevelup::Detector::numTemplates)
         .def("add_templs", &linemodLevelup::Detector::add_templs, py::arg("class_id"),
              py::arg("renderer"), py::arg("radius"), py::arg("level") = 4,
              py::arg("azimuth_range_min")=0, py::arg("azimuth_range_max")= 2*CV_PI,

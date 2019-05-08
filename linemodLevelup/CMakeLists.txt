@@ -5,7 +5,7 @@ project(patch_linemod)
 option(USE_CUDA "use cuda or not" OFF)
 
 SET(CMAKE_BUILD_TYPE "Release")
-SET(CMAKE_BUILD_TYPE "Debug")
+#SET(CMAKE_BUILD_TYPE "Debug")
 
 SET(CMAKE_CXX_FLAGS "-fPIC -fopenmp -Wall -Wno-sign-compare $ENV{CXXFLAGS}")
 SET(CMAKE_CXX_FLAGS_DEBUG "-O0 -g2 -ggdb")

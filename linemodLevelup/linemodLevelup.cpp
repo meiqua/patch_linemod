@@ -13,6 +13,7 @@
 #include "Open3D/Core/Camera/PinholeCameraIntrinsic.h"
 #include "Open3D/Core/Geometry/PointCloud.h"
 #include "Open3D/Visualization/Visualization.h"
+#include "Open3D/Core/Geometry/TriangleMesh.h"
 using namespace std;
 using namespace cv;
 
@@ -1905,7 +1906,7 @@ std::vector<Match> Detector::match(const std::vector<Mat> &sources__, float thre
             std::set<int> invalid_id_set;
             std::vector<Match> nms_matches;
             for(auto& match: matches){  // matches have been sorted by simi
-                if(invalid_id_set.count(rc2id(match.y, match.x)) == 0){
+                if(invalid_id_set.find(rc2id(match.y, match.x)) == invalid_id_set.end()){
                     nms_matches.push_back(match);
 
                     for(int y_offset = -nms_kernel_size/2; y_offset <= nms_kernel_size/2; y_offset++){
@@ -2003,16 +2004,12 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 {
     constexpr int min_active_part = 3; // better for small objs?
 
-    struct temp_storage{
-        std::set<int> tid;
-    };
-
-    std::map<std::vector<int>, temp_storage> xy_templ_id_map;
+    std::map<std::vector<int>, std::set<int>> xy_templ_id_map;
 #ifdef _OPENMP
 #pragma omp parallel
     {
 #endif
-        std::map<std::vector<int>, temp_storage> xy_templ_id_map_private;
+        std::map<std::vector<int>, std::set<int>> xy_templ_id_map_private;
 #ifdef _OPENMP
 #pragma omp for nowait
 #endif
@@ -2133,7 +2130,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                             int offset = lowest_T / 2 + (lowest_T % 2 - 1);
                             int x = c * lowest_T + offset;
                             int y = r * lowest_T + offset;
-                            xy_templ_id_map_private[{x, y}].tid.insert(child.begin(), child.end());
+                            xy_templ_id_map_private[{x, y}].insert(child.begin(), child.end());
                         }
                     }
                 }
@@ -2145,7 +2142,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         {
 #endif
             for(auto& m: xy_templ_id_map_private){
-                xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
+                xy_templ_id_map[m.first].insert(m.second.begin(), m.second.end());
             }
 #ifdef _OPENMP
         }
@@ -2159,7 +2156,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         for(auto& m: xy_templ_id_map){
             int x = m.first[0];
             int y = m.first[1];
-            for(auto& tid: m.second.tid){
+            for(auto& tid: m.second){
                 candidates.emplace_back(x, y, tid);
             }
         }
@@ -2179,7 +2176,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         {
 #endif
             std::vector<Match> match_private;
-            std::map<std::vector<int>, temp_storage> xy_templ_id_map_private;
+            std::map<std::vector<int>, std::set<int>> xy_templ_id_map_private;
 #ifdef _OPENMP
 #pragma omp for nowait
 #endif
@@ -2292,7 +2289,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 
                     if(l>0){  // prepare for next level
                         auto& child = template_structure.templ_forest[match2.template_id];
-                        xy_templ_id_map_private[{match2.x, match2.y}].tid.insert(child.begin(), child.end());
+                        xy_templ_id_map_private[{match2.x, match2.y}].insert(child.begin(), child.end());
                     }else{
                         match2.class_id = class_id;
                         match_private.push_back(match2);
@@ -2304,7 +2301,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
             {
 #endif
                 for(auto& m: xy_templ_id_map_private){
-                    xy_templ_id_map[m.first].tid.insert(m.second.tid.begin(), m.second.tid.end());
+                    xy_templ_id_map[m.first].insert(m.second.begin(), m.second.end());
                 }
 
                 if(!match_private.empty())
@@ -2392,6 +2389,9 @@ std::string Detector::readClass(const FileNode &fn, const std::string &class_id_
 
     std::map<std::string, TemplateStructure>::value_type v(class_id, TemplateStructure());
     TemplateStructure &tps = v.second;
+    tps.last_level_size = fn["last_level_size"];
+    assert(tps.last_level_size > 0);
+
     int expected_id = 0;
 
     FileNode ts_fn = fn["templ_Ts"];
@@ -2597,9 +2597,11 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
             }
         }
 
-        const bool view_cluster = false;
+        const bool view_cluster = true;
         if(view_cluster){
             const int top10 = 10;
+
+            auto frame = open3d::CreateMeshCoordinateFrame(100, {0, 0, 800});
 
             auto& nc_map = nc_maps[level_iter];
             cout << "total nodes: " << nc_map.node2cluster.size() << endl;
@@ -2616,15 +2618,15 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                 auto nodes = nc_map.cluster2node[i];
                 for(int n: nodes){
                     auto pt = pts_test[n];
-                    model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800 + 1);
+                    model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800);
                     auto color = colors[i];
                     model_pcd->colors_.emplace_back(color[0], color[1], color[2]);
                 }
 
                 if(i < top10)  // press ESC to view next
-                open3d::DrawGeometries({model_pcd});
+                open3d::DrawGeometries({model_pcd, frame});
             }
-            open3d::DrawGeometries({model_pcd});
+            open3d::DrawGeometries({model_pcd, frame});
         }
     }
 
@@ -2678,6 +2680,7 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
         const bool view_map = false;
         if(view_map){
             auto model_pcd = std::make_shared<open3d::PointCloud>();
+            auto frame = open3d::CreateMeshCoordinateFrame(100,{0, 0, 800});
 
             const int top10 = 10;
             int cur_m = 0;
@@ -2699,7 +2702,7 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                                        rand()/float(RAND_MAX), rand()/float(RAND_MAX)};
                     for(int node: cur_nodes){
                         auto pt = pts_test[node];
-                        model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800 + 1);
+                        model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800);
                         model_pcd->colors_.emplace_back(color[0], color[1], color[2]);
                     }
                 }
@@ -2708,18 +2711,18 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                                        rand()/float(RAND_MAX), rand()/float(RAND_MAX)};
                     for(int node: nodes){
                         auto pt = pts_test2[node];
-                        model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800 + 1);
+                        model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + 800);
                         model_pcd->colors_.emplace_back(color[0], color[1], color[2]);
                     }
                 }
 
                 if(cur_m < top10)
-                    open3d::DrawGeometries({model_pcd});
+                    open3d::DrawGeometries({model_pcd, frame});
 
                 cur_m++;
             }
 
-            open3d::DrawGeometries({model_pcd});
+            open3d::DrawGeometries({model_pcd, frame});
         }
     }
 
@@ -2985,14 +2988,13 @@ void eigen2cv(const Eigen::Matrix<_Tp, _rows, _cols, _options, _maxRows, _maxCol
 }
 
 void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &modelK,
-                         Mat &modelR, Mat &modelT, int detectX, int detectY, double threshold)
+                         Mat &modelT, int detectX, int detectY, double threshold)
 {
     assert(sceneDepth.type() == CV_16U);
     assert(modelDepth.type() == CV_16U);
     assert(sceneK.type() == CV_32F);
     assert(modelK.type() == CV_32F);
-    assert(modelR.type() == CV_32F);
-    assert(modelT.type() == CV_32F);
+    assert(modelT.type() == CV_32F && modelT.cols == 4 && modelT.rows == 4);
 
     fitness = -1;
     inlier_rmse = -1;
@@ -3004,7 +3006,6 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
         fs << "modelDepth" << sceneDepth;
         fs << "sceneK" << sceneK;
         fs << "modelK" << modelK;
-        fs << "modelR" << modelR;
         fs << "modelT" << modelT;
         fs << "detectX" << detectX;
         fs << "detectY" << detectY;
@@ -3014,17 +3015,13 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 //        fs["modelDepth"] >> modelDepth;
 //        fs["sceneK"] >> sceneK;
 //        fs["modelK"] >> modelK;
-//        fs["modelR"] >> modelR;
 //        fs["modelT"] >> modelT;
 //        fs["detectX"] >> detectX;
 //        fs["detectY"] >> detectY;
     }
 
-    cv::Mat init_base_cv(4, 4, CV_32FC1, cv::Scalar(0));
-    modelR.copyTo(init_base_cv(cv::Rect(0, 0, 3, 3)));
-    modelT.copyTo(init_base_cv(cv::Rect(3, 0, 1, 3)));
+    cv::Mat init_base_cv = modelT.clone();
     init_base_cv.at<float>(2, 3) /= 1000.0f;
-    init_base_cv.at<float>(3, 3) = 1;
     init_base_cv = init_base_cv.t();  // row to col major
 
     Eigen::Matrix4f init_base = Eigen::Map<Eigen::Matrix4f>(reinterpret_cast<float*>(init_base_cv.data));

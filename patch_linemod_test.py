@@ -53,10 +53,10 @@ def nms(dets, thresh):
 
 # dataset = 'hinterstoisser'
 # dataset = 'tless'
-dataset = 'tudlight'
+# dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-# dataset = 'doumanoglou'
+dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 mode = 'render_train'
@@ -118,6 +118,9 @@ if mode == 'render_train':
     for obj_id in obj_ids_curr:
         azimuth_range = dp['test_obj_azimuth_range']
         elev_range = dp['test_obj_elev_range']
+        tilt_factor = 1
+        tilt_range = (-math.pi * tilt_factor, math.pi * tilt_factor)
+        tilt_step = math.pi/24
         min_n_views = 200
 
         model_path = dp['model_mpath'].format(obj_id)
@@ -126,47 +129,11 @@ if mode == 'render_train':
         pose_renderer.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
 
         for radius in dep_anchors:
-            # with camera tilt
-            # tilt_factor = (80 / 180)
-            tilt_factor = 1
-            views, views_level = view_sampler.sample_views(min_n_views, radius,
-                                                           azimuth_range, elev_range,
-                                                           tilt_range=(-math.pi * tilt_factor,
-                                                                       math.pi * tilt_factor),
-                                                           tilt_step=math.pi / 10, hinter_or_fibonacci=False)
-            print('Sampled views: ' + str(len(views)))
-            templateInfo = dict()
 
-            # Render the object model from all the views
-            for view_id, view in enumerate(views):
-                if view_id % 50 == 0:
-                    print(dataset + ' obj,radius,view: ' + str(obj_id) +
-                          ',' + str(radius) + ',' + str(view_id) + ', view_id: ', view_id)
+            detector.add_templs('{:02d}_template_{}'.format(obj_id, radius), pose_renderer,
+                                radius, 4, azimuth_range[0], azimuth_range[1],
+                                elev_range[0], elev_range[1], tilt_range[0], tilt_range[1], tilt_step)
 
-                mat_view = np.eye(4, dtype=np.float32)
-                mat_view[:3, :3] = view['R']
-                mat_view[:3, 3] = view['t'].squeeze()
-
-                [[depth, mask]] = pose_renderer.render_depth_mask([mat_view.astype(np.float32)],
-                                                                  dp['cam']['depth_scale'])
-
-                visual = True
-                if visual:
-                    cv2.imshow('mask', mask)
-                    cv2.waitKey(1)
-
-                aTemplateInfo = dict()
-                aTemplateInfo['cam_R_w2c'] = view['R']
-                aTemplateInfo['cam_t_w2c'] = view['t']
-
-                # well, mask can replace rgb, because we only care about silhouette
-                success = detector.addTemplate([mask, depth], '{:02d}_template_{}'.format(obj_id, radius))
-                print('success {}'.format(success[0]))
-
-                if success[0] != -1:
-                    templateInfo[success[0]] = aTemplateInfo
-
-            inout.save_info(tempInfo_saved_to.format(obj_id, radius), templateInfo)
             detector.writeClasses(template_saved_to)
             #  clear to save RAM
             detector.clear_classes()
@@ -349,33 +316,20 @@ if mode == 'test':
                 raw_match_rgb = np.copy(rgb)
                 for i in range(top100_local_refine):
                     match = matches[i]
-                    templ = detector.getTemplates(match.class_id, match.template_id)
+                    templ = detector.getStructure_Templs(match.class_id, match.template_id)
                     cv2.circle(raw_match_rgb, (int(match.x + templ[0].width / 2), int(match.y + templ[0].height / 2)),
                                2, (0, 0, 255), -1)
 
                     aTemplateInfo = templateInfo[match.class_id]
-                    R_match = aTemplateInfo[match.template_id]['cam_R_w2c']
-                    t_match = aTemplateInfo[match.template_id]['cam_t_w2c']
-
-                    mat_view = np.eye(4, dtype=np.float32)
-                    mat_view[:3, :3] = R_match
-                    mat_view[:3, 3] = t_match.squeeze()
+                    mat_view = detector.getStructure_T(match.class_id, match.template_id)
 
                     [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)],
                                                                   dp['cam']['depth_scale'])
 
-                    # cv2.rectangle(raw_match_rgb, (match.x, match.y),
-                    #               (match.x + templ[0].width, match.y + templ[0].height), (0, 0, 255), 1)
-                    # cv2.imshow("rgb", raw_match_rgb)
-                    # cv2.imshow("dep", pose_renderer.view_dep(depth_ren))
-                    # cv2.waitKey(0)
-
                     icp_start = time.time()
                     # make sure data type is consistent
                     pose_refiner.process(depth.astype(np.uint16), depth_ren.astype(np.uint16), K.astype(np.float32),
-                                       K.astype(np.float32), R_match.astype(np.float32),
-                                       t_match.astype(np.float32)
-                                       , match.x, match.y, 0.01)
+                                       K.astype(np.float32), mat_view.astype(np.float32), match.x, match.y, 0.01)
 
                     icp_time += (time.time() - icp_start)
 
@@ -481,6 +435,6 @@ if mode == 'test':
                     cv2.imshow('depth_edge', depth_edge)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
-                    cv2.waitKey(1)
+                    cv2.waitKey(0)
 
 print('end line')
