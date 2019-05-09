@@ -5,11 +5,7 @@
 #include <assert.h>
 #include <queue>
 #include <set>
-#include "Open3D/Core/Registration/Registration.h"
-#include "Open3D/Core/Geometry/Image.h"
-#include "Open3D/Core/Camera/PinholeCameraIntrinsic.h"
-#include "Open3D/Core/Geometry/PointCloud.h"
-#include "Open3D/Visualization/Visualization.h"
+#include "Open3D/Open3D.h"
 using namespace std;
 using namespace cv;
 
@@ -2621,21 +2617,21 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
     cv::Rect roi = cv::Rect(detectX, detectY, bbox.width, bbox.height);
     if((detectX + bbox.width >= sceneDepth.cols) || (detectY + bbox.height >= sceneDepth.rows)) return;
 
-    open3d::Image scene_depth_open3d, model_depth_open3d;
+    open3d::geometry::Image scene_depth_open3d, model_depth_open3d;
     model_depth_open3d.PrepareImage(modelDepth.cols, modelDepth.rows, 1, 2);
 
     std::copy_n(modelDepth.data, model_depth_open3d.data_.size(),
                 model_depth_open3d.data_.begin());
 
-    open3d::PinholeCameraIntrinsic K_scene_open3d(sceneDepth.cols, sceneDepth.rows,
+    open3d::camera::PinholeCameraIntrinsic K_scene_open3d(sceneDepth.cols, sceneDepth.rows,
                                                   double(sceneK.at<float>(0, 0)), double(sceneK.at<float>(1, 1)),
                                                   double(sceneK.at<float>(0, 2)), double(sceneK.at<float>(1, 2)));
 
-    open3d::PinholeCameraIntrinsic K_model_open3d(modelDepth.cols, modelDepth.rows,
+    open3d::camera::PinholeCameraIntrinsic K_model_open3d(modelDepth.cols, modelDepth.rows,
                                                   double(modelK.at<float>(0, 0)), double(modelK.at<float>(1, 1)),
                                                   double(modelK.at<float>(0, 2)), double(modelK.at<float>(1, 2)));
 
-    auto model_pcd = open3d::CreatePointCloudFromDepthImage(model_depth_open3d, K_model_open3d);
+    auto model_pcd = open3d::geometry::CreatePointCloudFromDepthImage(model_depth_open3d, K_model_open3d);
 
     Eigen::Matrix4d init_guess = Eigen::Matrix4d::Identity(4, 4);
 
@@ -2643,16 +2639,16 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
     sceneDepth(roi).copyTo(scene_depth_model_cover(roi), modelMask(bbox));
 //    cv::medianBlur(scene_depth_model_cover, scene_depth_model_cover, 5);
 
-    open3d::Image scene_depth_for_center_estimation;
+    open3d::geometry::Image scene_depth_for_center_estimation;
     scene_depth_for_center_estimation.PrepareImage(scene_depth_model_cover.cols, scene_depth_model_cover.rows,
                                                    1, 2);
     std::copy_n(scene_depth_model_cover.data, scene_depth_for_center_estimation.data_.size(),
                 scene_depth_for_center_estimation.data_.begin());
-    auto scene_pcd_for_center = open3d::CreatePointCloudFromDepthImage(scene_depth_for_center_estimation, K_scene_open3d);
+    auto scene_pcd_for_center = open3d::geometry::CreatePointCloudFromDepthImage(scene_depth_for_center_estimation, K_scene_open3d);
 
     double voxel_size = 0.002;
-    auto model_pcd_down = open3d::VoxelDownSample(*model_pcd, voxel_size);
-    auto scene_pcd_down = open3d::VoxelDownSample(*scene_pcd_for_center, voxel_size);
+    auto model_pcd_down = open3d::geometry::VoxelDownSample(*model_pcd, voxel_size);
+    auto scene_pcd_down = open3d::geometry::VoxelDownSample(*scene_pcd_for_center, voxel_size);
 
 //    auto model_pcd_down = open3d::UniformDownSample(*model_pcd, 5);
 //    auto scene_pcd_down = open3d::UniformDownSample(*scene_pcd_for_center, 5);
@@ -2681,20 +2677,20 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 
     const bool debug_ = false;
     if(debug_){
-        auto init_result = open3d::EvaluateRegistration(*model_pcd_down, *scene_pcd_down, threshold, init_guess);
+        auto init_result = open3d::registration::EvaluateRegistration(*model_pcd_down, *scene_pcd_down, threshold, init_guess);
         std::cout << "init_result.fitness_: " << init_result.fitness_ << std::endl;
         std::cout << "init_result.inlier_rmse_ : " << init_result.inlier_rmse_ << std::endl;
 
         model_pcd_down->PaintUniformColor({1, 0.706, 0});
         scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
-        open3d::DrawGeometries({model_pcd_down, scene_pcd_down});
+        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
     }
 
-    open3d::EstimateNormals(*model_pcd_down);
-    open3d::EstimateNormals(*scene_pcd_down);
-    auto final_result = open3d::RegistrationICP(*model_pcd_down, *scene_pcd_down, threshold,
+    open3d::geometry::EstimateNormals(*model_pcd_down);
+    open3d::geometry::EstimateNormals(*scene_pcd_down);
+    auto final_result = open3d::registration::RegistrationICP(*model_pcd_down, *scene_pcd_down, threshold,
                                                 init_guess,
-                                                open3d::TransformationEstimationPointToPlane());
+                                                open3d::registration::TransformationEstimationPointToPlane());
 
     if(debug_){
         std::cout << "final_result.fitness_: " << final_result.fitness_ << std::endl;
@@ -2703,7 +2699,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
         model_pcd_down->Transform(final_result.transformation_);
         model_pcd_down->PaintUniformColor({1, 0.706, 0});
         scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
-        open3d::DrawGeometries({model_pcd_down, scene_pcd_down});
+        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
     }
 
     Eigen::Matrix4d result = final_result.transformation_*init_base.cast<double>();
@@ -2732,103 +2728,6 @@ void poseRefine::cannyTraceEdge(int rowOffset, int colOffset, int row, int col, 
         cannyTraceEdge ( 1, -1, newRow, newCol, canny_edge, mag_nms);
     }
 };
-
-static cv::Mat get_normal(cv::Mat &depth__, cv::Mat K = cv::Mat())
-{
-    cv::Mat depth;
-    int depth_type = depth__.type();
-    assert(depth_type == CV_16U || depth_type == CV_32S);
-    if(depth_type == CV_32S){
-        depth__.convertTo(depth, CV_16U);
-    }else{
-        depth = depth__;
-    }
-
-    float fx = 530;
-    float fy = 530;
-    if(!K.empty()){
-        assert(K.type() == CV_32F);
-        fx = K.at<float>(0, 0);
-        fy = K.at<float>(1, 1);
-    }
-
-//       cv::medianBlur(depth, depth, 5);
-       cv::Mat normals = cv::Mat(depth.size(), CV_32FC3, cv::Scalar(0));
-       // method from linemod depth modality
-       {
-           cv::Mat src = depth;
-           int distance_threshold = 2000;
-           int difference_threshold = 50;
-
-           const unsigned short *lp_depth = src.ptr<ushort>();
-           cv::Vec3f *lp_normals = normals.ptr<cv::Vec3f>();
-
-           const int l_W = src.cols;
-           const int l_H = src.rows;
-
-           const int l_r = 5; // used to be 7
-           const int l_offset0 = -l_r - l_r * l_W;
-           const int l_offset1 = 0 - l_r * l_W;
-           const int l_offset2 = +l_r - l_r * l_W;
-           const int l_offset3 = -l_r;
-           const int l_offset4 = +l_r;
-           const int l_offset5 = -l_r + l_r * l_W;
-           const int l_offset6 = 0 + l_r * l_W;
-           const int l_offset7 = +l_r + l_r * l_W;
-
-           for (int l_y = l_r; l_y < l_H - l_r - 1; ++l_y)
-           {
-               const unsigned short *lp_line = lp_depth + (l_y * l_W + l_r);
-               cv::Vec3f *lp_norm = lp_normals + (l_y * l_W + l_r);
-
-               for (int l_x = l_r; l_x < l_W - l_r - 1; ++l_x)
-               {
-                   long l_d = lp_line[0];
-                   if (l_d < distance_threshold /*&& l_d > 0*/)
-                   {
-                       // accum
-                       long l_A[4];
-                       l_A[0] = l_A[1] = l_A[2] = l_A[3] = 0;
-                       long l_b[2];
-                       l_b[0] = l_b[1] = 0;
-                       linemodLevelup::accumBilateral(lp_line[l_offset0] - l_d, -l_r, -l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset1] - l_d, 0, -l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset2] - l_d, +l_r, -l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset3] - l_d, -l_r, 0, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset4] - l_d, +l_r, 0, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset5] - l_d, -l_r, +l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset6] - l_d, 0, +l_r, l_A, l_b, difference_threshold);
-                       linemodLevelup::accumBilateral(lp_line[l_offset7] - l_d, +l_r, +l_r, l_A, l_b, difference_threshold);
-
-                       // solve
-                       long l_det = l_A[0] * l_A[3] - l_A[1] * l_A[1];
-                       long l_ddx = l_A[3] * l_b[0] - l_A[1] * l_b[1];
-                       long l_ddy = -l_A[1] * l_b[0] + l_A[0] * l_b[1];
-
-                       float l_nx = static_cast<float>(fx * l_ddx);
-                       float l_ny = static_cast<float>(fy * l_ddy);
-                       float l_nz = static_cast<float>(-l_det * l_d);
-
-                       float l_sqrt = sqrtf(l_nx * l_nx + l_ny * l_ny + l_nz * l_nz);
-
-                       if (l_sqrt > 0)
-                       {
-                           float l_norminv = 1.0f / (l_sqrt);
-
-                           l_nx *= l_norminv;
-                           l_ny *= l_norminv;
-                           l_nz *= l_norminv;
-
-                           *lp_norm = {l_nx, l_ny, l_nz};
-                       }
-                   }
-                   ++lp_line;
-                   ++lp_norm;
-               }
-           }
-       }
-       return normals;
-}
 
 Mat poseRefine::get_depth_edge(Mat &depth_, int dilute_size)
 {
