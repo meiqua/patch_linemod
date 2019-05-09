@@ -3,12 +3,7 @@
 #include <map>
 #include <set>
 
-#include "Open3D/Core/Registration/Registration.h"
-#include "Open3D/Core/Geometry/Image.h"
-#include "Open3D/Core/Geometry/LineSet.h"
-#include "Open3D/Core/Camera/PinholeCameraIntrinsic.h"
-#include "Open3D/Core/Geometry/PointCloud.h"
-#include "Open3D/Visualization/Visualization.h"
+#include "Open3D/Open3D.h"
 
 using namespace cv;
 
@@ -145,7 +140,7 @@ linemodLevelup::Pose_structure hinter_sampling(float radius, int level,
 
     const bool view_valid_pts = false;
     if(view_valid_pts){
-        auto model_pcd = std::make_shared<open3d::PointCloud>();
+        auto model_pcd = std::make_shared<open3d::geometry::PointCloud>();
         for(auto& pt: pts){
             if(is_valid(pt)){
                 model_pcd->points_.emplace_back(pt[0], pt[1], pt[2] + radius + 1);
@@ -154,7 +149,7 @@ linemodLevelup::Pose_structure hinter_sampling(float radius, int level,
             }
         }
 //        model_pcd->PaintUniformColor({1, 0.706, 0});
-        open3d::DrawGeometries({model_pcd});
+        open3d::visualization::DrawGeometries({model_pcd});
     }
 
     std::vector<int> valid_pts(pts.size(), 0);

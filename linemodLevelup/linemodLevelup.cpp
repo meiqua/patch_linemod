@@ -7,13 +7,8 @@
 #include <set>
 #include "pose_tree.h"
 
+#include "Open3D/Open3D.h"
 
-#include "Open3D/Core/Registration/Registration.h"
-#include "Open3D/Core/Geometry/Image.h"
-#include "Open3D/Core/Camera/PinholeCameraIntrinsic.h"
-#include "Open3D/Core/Geometry/PointCloud.h"
-#include "Open3D/Visualization/Visualization.h"
-#include "Open3D/Core/Geometry/TriangleMesh.h"
 using namespace std;
 using namespace cv;
 
@@ -2623,11 +2618,11 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
             }
         }
 
-        const bool view_cluster = true;
+        const bool view_cluster = false;
         if(view_cluster){
             const int top10 = 10;
 
-            auto frame = open3d::CreateMeshCoordinateFrame(100, {0, 0, 800});
+            auto frame = open3d::geometry::CreateMeshCoordinateFrame(100, {0, 0, 800});
 
             auto& nc_map = nc_maps[level_iter];
             cout << "total nodes: " << nc_map.node2cluster.size() << endl;
@@ -2639,7 +2634,7 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                              rand()/float(RAND_MAX), rand()/float(RAND_MAX)};
             }
 
-            auto model_pcd = std::make_shared<open3d::PointCloud>();
+            auto model_pcd = std::make_shared<open3d::geometry::PointCloud>();
             for(int i=0; i<nc_map.cluster2node.size(); i++){
                 auto nodes = nc_map.cluster2node[i];
                 for(int n: nodes){
@@ -2650,9 +2645,9 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                 }
 
                 if(i < top10)  // press ESC to view next
-                open3d::DrawGeometries({model_pcd, frame});
+                open3d::visualization::DrawGeometries({model_pcd, frame});
             }
-            open3d::DrawGeometries({model_pcd, frame});
+            open3d::visualization::DrawGeometries({model_pcd, frame});
         }
     }
 
@@ -2705,8 +2700,8 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
 
         const bool view_map = false;
         if(view_map){
-            auto model_pcd = std::make_shared<open3d::PointCloud>();
-            auto frame = open3d::CreateMeshCoordinateFrame(100,{0, 0, 800});
+            auto model_pcd = std::make_shared<open3d::geometry::PointCloud>();
+            auto frame = open3d::geometry::CreateMeshCoordinateFrame(100,{0, 0, 800});
 
             const int top10 = 10;
             int cur_m = 0;
@@ -2743,12 +2738,12 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
                 }
 
                 if(cur_m < top10)
-                    open3d::DrawGeometries({model_pcd, frame});
+                    open3d::visualization::DrawGeometries({model_pcd, frame});
 
                 cur_m++;
             }
 
-            open3d::DrawGeometries({model_pcd, frame});
+            open3d::visualization::DrawGeometries({model_pcd, frame});
         }
     }
 
@@ -3063,21 +3058,21 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
     cv::Rect roi = cv::Rect(detectX, detectY, bbox.width, bbox.height);
     if((detectX + bbox.width >= sceneDepth.cols) || (detectY + bbox.height >= sceneDepth.rows)) return;
 
-    open3d::Image scene_depth_open3d, model_depth_open3d;
+    open3d::geometry::Image scene_depth_open3d, model_depth_open3d;
     model_depth_open3d.PrepareImage(modelDepth.cols, modelDepth.rows, 1, 2);
 
     std::copy_n(modelDepth.data, model_depth_open3d.data_.size(),
                 model_depth_open3d.data_.begin());
 
-    open3d::PinholeCameraIntrinsic K_scene_open3d(sceneDepth.cols, sceneDepth.rows,
+    open3d::camera::PinholeCameraIntrinsic K_scene_open3d(sceneDepth.cols, sceneDepth.rows,
                                                   double(sceneK.at<float>(0, 0)), double(sceneK.at<float>(1, 1)),
                                                   double(sceneK.at<float>(0, 2)), double(sceneK.at<float>(1, 2)));
 
-    open3d::PinholeCameraIntrinsic K_model_open3d(modelDepth.cols, modelDepth.rows,
+    open3d::camera::PinholeCameraIntrinsic K_model_open3d(modelDepth.cols, modelDepth.rows,
                                                   double(modelK.at<float>(0, 0)), double(modelK.at<float>(1, 1)),
                                                   double(modelK.at<float>(0, 2)), double(modelK.at<float>(1, 2)));
 
-    auto model_pcd = open3d::CreatePointCloudFromDepthImage(model_depth_open3d, K_model_open3d);
+    auto model_pcd = open3d::geometry::CreatePointCloudFromDepthImage(model_depth_open3d, K_model_open3d);
 
     Eigen::Matrix4d init_guess = Eigen::Matrix4d::Identity(4, 4);
 
@@ -3085,16 +3080,16 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
     sceneDepth(roi).copyTo(scene_depth_model_cover(roi), modelMask(bbox));
 //    cv::medianBlur(scene_depth_model_cover, scene_depth_model_cover, 5);
 
-    open3d::Image scene_depth_for_center_estimation;
+    open3d::geometry::Image scene_depth_for_center_estimation;
     scene_depth_for_center_estimation.PrepareImage(scene_depth_model_cover.cols, scene_depth_model_cover.rows,
                                                    1, 2);
     std::copy_n(scene_depth_model_cover.data, scene_depth_for_center_estimation.data_.size(),
                 scene_depth_for_center_estimation.data_.begin());
-    auto scene_pcd_for_center = open3d::CreatePointCloudFromDepthImage(scene_depth_for_center_estimation, K_scene_open3d);
+    auto scene_pcd_for_center = open3d::geometry::CreatePointCloudFromDepthImage(scene_depth_for_center_estimation, K_scene_open3d);
 
     double voxel_size = 0.002;
-    auto model_pcd_down = open3d::VoxelDownSample(*model_pcd, voxel_size);
-    auto scene_pcd_down = open3d::VoxelDownSample(*scene_pcd_for_center, voxel_size);
+    auto model_pcd_down = open3d::geometry::VoxelDownSample(*model_pcd, voxel_size);
+    auto scene_pcd_down = open3d::geometry::VoxelDownSample(*scene_pcd_for_center, voxel_size);
 
 //    auto model_pcd_down = open3d::UniformDownSample(*model_pcd, 5);
 //    auto scene_pcd_down = open3d::UniformDownSample(*scene_pcd_for_center, 5);
@@ -3123,20 +3118,20 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
 
     const bool debug_ = false;
     if(debug_){
-        auto init_result = open3d::EvaluateRegistration(*model_pcd_down, *scene_pcd_down, threshold, init_guess);
+        auto init_result = open3d::registration::EvaluateRegistration(*model_pcd_down, *scene_pcd_down, threshold, init_guess);
         std::cout << "init_result.fitness_: " << init_result.fitness_ << std::endl;
         std::cout << "init_result.inlier_rmse_ : " << init_result.inlier_rmse_ << std::endl;
 
         model_pcd_down->PaintUniformColor({1, 0.706, 0});
         scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
-        open3d::DrawGeometries({model_pcd_down, scene_pcd_down});
+        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
     }
 
-    open3d::EstimateNormals(*model_pcd_down);
-    open3d::EstimateNormals(*scene_pcd_down);
-    auto final_result = open3d::RegistrationICP(*model_pcd_down, *scene_pcd_down, threshold,
+    open3d::geometry::EstimateNormals(*model_pcd_down);
+    open3d::geometry::EstimateNormals(*scene_pcd_down);
+    auto final_result = open3d::registration::RegistrationICP(*model_pcd_down, *scene_pcd_down, threshold,
                                                 init_guess,
-                                                open3d::TransformationEstimationPointToPlane());
+                                                open3d::registration::TransformationEstimationPointToPlane());
 
     if(debug_){
         std::cout << "final_result.fitness_: " << final_result.fitness_ << std::endl;
@@ -3145,7 +3140,7 @@ void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &mod
         model_pcd_down->Transform(final_result.transformation_);
         model_pcd_down->PaintUniformColor({1, 0.706, 0});
         scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
-        open3d::DrawGeometries({model_pcd_down, scene_pcd_down});
+        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
     }
 
     Eigen::Matrix4d result = final_result.transformation_*init_base.cast<double>();
