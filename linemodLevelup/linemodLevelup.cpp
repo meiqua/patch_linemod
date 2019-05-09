@@ -1981,6 +1981,16 @@ const Mat &Detector::getStructure_T(const string &class_id, int template_id) con
     return (*iter).second.templ_Ts[template_id];
 }
 
+int Detector::numTemplates() const
+{
+    int sum = 0;
+    for(auto& m: class_templs_structure){
+//        std::cout << "templ " << m.first << ", num: " << m.second.templs.size() << endl;
+        sum += m.second.templs.size();
+    }
+    return sum;
+}
+
 // Used to filter out weak matches
 struct MatchPredicate
 {
@@ -2005,6 +2015,10 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
     constexpr int min_active_part = 3; // better for small objs?
 
     std::map<std::vector<int>, std::set<int>> xy_templ_id_map;
+
+    assert(template_structure.templs.size() >= template_structure.last_level_size);
+    assert(template_structure.templ_forest.size() >= template_structure.last_level_size);
+
 #ifdef _OPENMP
 #pragma omp parallel
     {
@@ -2017,9 +2031,13 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
             // lowest level
             auto& templs_lowest = template_structure.templs[tree_i];
             auto& child = template_structure.templ_forest[tree_i];
+            assert(!child.empty());
+
             const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back();
 
             bool is_valid_templ = true;
+
+            assert(templs_lowest.size() == 2);
             for(int i=0; i<modalities.size(); i++){
                 if(templs_lowest[i].features.size() < 8) is_valid_templ = false;
             }
@@ -2129,7 +2147,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                         if(nms_row[c]>0){
                             int offset = lowest_T / 2 + (lowest_T % 2 - 1);
                             int x = c * lowest_T + offset;
-                            int y = r * lowest_T + offset;
+                            int y = r * lowest_T + offset;                            
                             xy_templ_id_map_private[{x, y}].insert(child.begin(), child.end());
                         }
                     }
@@ -2169,8 +2187,6 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
         int offset = T / 2 + (T % 2 - 1);
 
         const int local_size = 16;
-        std::vector<std::vector<Mat>> similarities2(modalities.size());
-        std::vector<std::vector<uint16_t>> cluster_counts2(modalities.size());
 #ifdef _OPENMP
 #pragma omp parallel
         {
@@ -2181,9 +2197,16 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 #pragma omp for nowait
 #endif
             for (int m = 0; m < (int)candidates.size(); ++m){
+
+                std::vector<std::vector<Mat>> similarities2(modalities.size());
+                std::vector<std::vector<uint16_t>> cluster_counts2(modalities.size());
+
+                assert(candidates[m][2] < template_structure.templs.size());
                 auto& tps = template_structure.templs[candidates[m][2]];
 
                 bool is_valid_templ = true;
+
+                assert(tps.size() == 2);
                 for(int i=0; i<modalities.size(); i++){
                     if(tps[i].features.size() < 8) is_valid_templ = false;
                 }
@@ -2195,7 +2218,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                 match2.y = candidates[m][1];
                 match2.template_id = candidates[m][2];
 
-                int x = match2.x * 2 + 1; /// @todo Support other pyramid distance
+                int x = match2.x * 2 + 1;
                 int y = match2.y * 2 + 1;
 
                 // Require 8 (reduced) row/cols to the up/left
@@ -2288,7 +2311,10 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                 if(match2.similarity > 0){
 
                     if(l>0){  // prepare for next level
+                        assert(match2.template_id < template_structure.templ_forest.size());
                         auto& child = template_structure.templ_forest[match2.template_id];
+
+                        assert(!child.empty());
                         xy_templ_id_map_private[{match2.x, match2.y}].insert(child.begin(), child.end());
                     }else{
                         match2.class_id = class_id;

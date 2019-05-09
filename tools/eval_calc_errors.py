@@ -19,9 +19,9 @@ from params.dataset_params import get_dataset_params
 # dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
-dataset = 'rutgers'
+# dataset = 'rutgers'
 # dataset = 'tejani'
-# dataset = 'doumanoglou'
+dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 top_level_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

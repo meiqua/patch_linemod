@@ -180,9 +180,9 @@ def main():
     # dataset = 'hinterstoisser'
     # dataset = 'tless'
     # dataset = 'tudlight'
-    dataset = 'rutgers'
+    # dataset = 'rutgers'
     # dataset = 'tejani'
-    # dataset = 'doumanoglou'
+    dataset = 'doumanoglou'
     # dataset = 'toyotalight'
 
     error_bpath = pjoin(top_level_path, 'eval')

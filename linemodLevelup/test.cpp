@@ -176,7 +176,7 @@ void detect_test(){
 }
 
 void dataset_test(){
-    string pre = "/home/meiqua/6DPose/public/datasets/hinterstoisser/test/06/";
+    string pre = "/home/meiqua/patch_linemod/public/datasets/doumanoglou/test/01/";
     int i=0;
     for(;i<1000;i++){
         auto i_str = to_string(i);
@@ -190,13 +190,13 @@ void dataset_test(){
         sources.push_back(depth);
         auto detector = linemodLevelup::Detector(16, {4, 8});
 
-        std::vector<int> dep_anchors = {346, 415, 498, 598, 718, 861, 1034, 1240, 1489};
+        std::vector<int> dep_anchors = {454, 545, 654, 785, 942};
         int dep_range = 200;
         vector<string> classes;
         for(int dep: dep_anchors){
             classes.push_back("01_template_"+std::to_string(dep));
         }
-        detector.readClasses(classes, "/home/meiqua/6DPose/public/datasets/hinterstoisser/linemod_render_up/%s.yaml");
+        detector.readClasses(classes, "/home/meiqua/patch_linemod/public/datasets/doumanoglou/_linemod_render_up/%s.yaml");
 
         auto start_time = std::chrono::high_resolution_clock::now();
         vector<linemodLevelup::Match> matches = detector.match(sources, 70, 0.6f, classes, dep_anchors, dep_range);
@@ -236,11 +236,10 @@ void dataset_test(){
             cout << "\nx: " << match.x << "\ty: " << match.y
                  << "\tsimilarity: "<< match.similarity <<endl;
             cout << "class_id: " << match.class_id << "\ttemplate_id: " << match.template_id <<endl;
-            cv::circle(draw, cv::Point(match.x+r,match.y+r), r, cv::Scalar(255, 0 ,255), 2);
-            cv::putText(draw, to_string(int(round(match.similarity))),
-                        cv::Point(match.x+r-10, match.y-3), FONT_HERSHEY_PLAIN, 1.4, cv::Scalar(0,255,255));
+            cv::circle(draw, cv::Point(match.x+r,match.y+r), 2, cv::Scalar(255, 0 ,255), -1);
+//            cv::putText(draw, to_string(int(round(match.similarity))),
+//                        cv::Point(match.x+r-10, match.y-3), FONT_HERSHEY_PLAIN, 1.4, cv::Scalar(0,255,255));
         }
-        std::cout << "i: " << i << std::endl;
         imshow("rgb", draw);
 
         waitKey(0);
@@ -419,6 +418,6 @@ void build_templ_structure_test(){
 }
 
 int main(){
-    build_templ_structure_test();
+    dataset_test();
     return 0;
 }

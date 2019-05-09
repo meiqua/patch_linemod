@@ -99,13 +99,11 @@ while current_dep < dep_max:
 print('\ndep anchors:\n {}, \ndep range: {}\n'.format(dep_anchors, dep_range))
 
 top_level_path = os.path.dirname(os.path.abspath(__file__))
-template_saved_to = join(dp['base_path'], 'linemod_render_up', '%s.yaml')
-matches_saved_to = join(dp['base_path'], 'linemod_render_up_matches_dump', '{:02d}_{:02d}_{:04d}.yaml')
-tempInfo_saved_to = join(dp['base_path'], 'linemod_render_up', '{:02d}_info_{}.yaml')
+template_saved_to = join(dp['base_path'], '_linemod_render_up', '%s.yaml')
+matches_saved_to = join(dp['base_path'], '_linemod_render_up_matches_dump', '{:02d}_{:02d}_{:04d}.yaml')
 result_base_path = join(top_level_path, 'public', 'sixd_results', 'patch-linemod_'+dataset)
 
 misc.ensure_dir(os.path.dirname(template_saved_to))
-misc.ensure_dir(os.path.dirname(tempInfo_saved_to))
 misc.ensure_dir(os.path.dirname(matches_saved_to))
 misc.ensure_dir(result_base_path)
 
@@ -130,6 +128,7 @@ if mode == 'render_train':
 
         for radius in dep_anchors:
 
+            print('\n building templs, obj: {} r: {}'.format(obj_id, radius))
             detector.add_templs('{:02d}_template_{}'.format(obj_id, radius), pose_renderer,
                                 radius, 4, azimuth_range[0], azimuth_range[1],
                                 elev_range[0], elev_range[1], tilt_range[0], tilt_range[1], tilt_step)
@@ -245,15 +244,6 @@ if mode == 'test':
 
             print('num templs: {}'.format(detector.numTemplates()))
 
-            templateInfo = dict()
-            for radius in dep_anchors:
-                key = tempInfo_saved_to.format(obj_id_in_scene, radius)
-                aTemplateInfo = inout.load_info(key)
-                key = os.path.basename(key)
-                key = os.path.splitext(key)[0]
-                key = key.replace('info', 'template')
-                templateInfo[key] = aTemplateInfo
-
             # Considered subset of images for the current scene
             if im_ids_sets is not None:
                 im_ids_curr = im_ids_sets[scene_id]
@@ -320,7 +310,6 @@ if mode == 'test':
                     cv2.circle(raw_match_rgb, (int(match.x + templ[0].width / 2), int(match.y + templ[0].height / 2)),
                                2, (0, 0, 255), -1)
 
-                    aTemplateInfo = templateInfo[match.class_id]
                     mat_view = detector.getStructure_T(match.class_id, match.template_id)
 
                     [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)],
@@ -435,6 +424,6 @@ if mode == 'test':
                     cv2.imshow('depth_edge', depth_edge)
                     cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
-                    cv2.waitKey(0)
+                    cv2.waitKey(1)
 
 print('end line')
