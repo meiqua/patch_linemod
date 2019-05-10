@@ -51,18 +51,19 @@ def nms(dets, thresh):
 
     return keep
 
-# dataset = 'hinterstoisser'
+dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-dataset = 'doumanoglou'
+# dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 mode = 'render_train'
 # mode = 'test'
 
 dp = get_dataset_params(dataset)
+# 32 [8, 8, 8] 16
 detector = patch_linemod_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
 
 obj_ids = []  # for each obj

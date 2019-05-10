@@ -1852,23 +1852,24 @@ std::vector<Match> Detector::match(const std::vector<Mat> &sources__, float thre
                 bbox=cv::boundingRect(Points);
 
                 // discard small area
-//                if(bbox.width<=32 || bbox.height<=32) continue;
+                int smallest_size = 32;
+                if(bbox.width<=smallest_size || bbox.height<=smallest_size) continue;
 
-                if(bbox.width%16!=0){
-                    bbox.width += (16 - bbox.width%16);
+                if(bbox.width%smallest_size!=0){
+                    bbox.width += (smallest_size - bbox.width%smallest_size);
                     if(bbox.width + bbox.x > mask.cols){
-                        bbox.x -= (16 - bbox.width%16);
+                        bbox.x -= (smallest_size - bbox.width%smallest_size);
                         if(bbox.x < 0) bbox.x = 0;
                     }
                 }
-                if(bbox.height%16!=0){
-                    bbox.height += (16 - bbox.height%16);
+                if(bbox.height%smallest_size!=0){
+                    bbox.height += (smallest_size - bbox.height%smallest_size);
                     if(bbox.height + bbox.y > mask.rows){
-                        bbox.y -= (16 - bbox.height%16);
+                        bbox.y -= (smallest_size - bbox.height%smallest_size);
                         if(bbox.y < 0) bbox.y = 0;
                     }
                 }
-                //                assert(bbox.height%16==0 && bbox.width%16==0);
+                assert(bbox.height%smallest_size==0 && bbox.width%smallest_size==0);
             }
 
             // parts quant, clone to avoid writing whole quant
@@ -2013,7 +2014,7 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
 
     assert(template_structure.templs.size() >= template_structure.last_level_size);
     assert(template_structure.templ_forest.size() >= template_structure.last_level_size);
-
+    assert(T_at_level.size() > 1);
 #ifdef _OPENMP
 #pragma omp parallel
     {
@@ -2101,34 +2102,39 @@ void Detector::matchClass_by_structure(const Detector::LinearMemoryPyramid &lm_p
                 }
 
                 // Find initial matches, nms
-                int nms_kernel_size = 5;
-                for (int r = nms_kernel_size/2; r < similarities[0][0].rows-nms_kernel_size/2; ++r)
-                {
-                    float* nms_row = nms_candidates.ptr<float>(r);
-                    for (int c = nms_kernel_size/2; c < similarities[0][0].cols-nms_kernel_size/2; ++c)
+                int stride_factor = T_at_level[T_at_level.size()-1]/T_at_level[T_at_level.size()-2];
+                if(stride_factor < 1) stride_factor = 1;
+                int half_size = 4/stride_factor;
+                if(half_size > 0){
+                    int nms_kernel_size = half_size*2+1;
+                    for (int r = nms_kernel_size/2; r < similarities[0][0].rows-nms_kernel_size/2; ++r)
                     {
-                        float score = nms_row[c];
-                        if(score<=0) continue;
+                        float* nms_row = nms_candidates.ptr<float>(r);
+                        for (int c = nms_kernel_size/2; c < similarities[0][0].cols-nms_kernel_size/2; ++c)
+                        {
+                            float score = nms_row[c];
+                            if(score<=0) continue;
 
-                        bool is_max = true;
-                        for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
-                            for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
-                                if(r_offset == 0 && c_offset == 0) continue;
-
-                                if(score < nms_candidates.at<float>(r+r_offset, c+c_offset)){
-                                    score = 0;
-                                    is_max = false;
-                                    goto break2;
-                                }
-                            }
-                        }
-                        break2:
-
-                        if(is_max){
+                            bool is_max = true;
                             for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
                                 for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
                                     if(r_offset == 0 && c_offset == 0) continue;
-                                    nms_candidates.at<float>(r+r_offset, c+c_offset) = 0;
+
+                                    if(score < nms_candidates.at<float>(r+r_offset, c+c_offset)){
+                                        score = 0;
+                                        is_max = false;
+                                        goto break2;
+                                    }
+                                }
+                            }
+                            break2:
+
+                            if(is_max){
+                                for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
+                                    for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
+                                        if(r_offset == 0 && c_offset == 0) continue;
+                                        nms_candidates.at<float>(r+r_offset, c+c_offset) = 0;
+                                    }
                                 }
                             }
                         }
@@ -2411,7 +2417,7 @@ std::string Detector::readClass(const FileNode &fn, const std::string &class_id_
     std::map<std::string, TemplateStructure>::value_type v(class_id, TemplateStructure());
     TemplateStructure &tps = v.second;
     tps.last_level_size = fn["last_level_size"];
-    assert(tps.last_level_size > 0);
+    assert(tps.last_level_size >= 0);
 
     int expected_id = 0;
 
@@ -2561,6 +2567,19 @@ void Match::write(FileStorage &fs) const
 
 
 namespace linemodLevelup{
+
+template<class T>
+inline void cpu_exclusive_scan_serial(T* start, uint32_t N){
+    T cache = start[0];
+    start[0] = 0;
+    for (uint32_t i = 1; i < N; i++)
+    {
+        T temp = cache + start[i-1];
+        cache = start[i];
+        start[i] = temp;
+    }
+}
+
 Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &structure, PoseRenderer &renderer)
 {
     assert(structure.Ts.size() > 0 && structure.Ts.size() == structure.nodes.size());
@@ -2802,15 +2821,52 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
 
     templ_v.resize(render_id_v.size());
     templ_Ts.resize(render_id_v.size());
-    cout << "total templ: " << render_id_v.size() << endl;
+    std::vector<int> valid_id(render_id_v.size(), 0);
+    int last_valid_num = 0;
     for(int i=0; i<render_id_v.size(); i++){
         int id = unique2id(render_id_v[i]);
         int level = unique2level(render_id_v[i]);
 
-        cout << "render templ: " << i << endl;
         templ_Ts[i] = structure.Ts[id];
         templ_v[i] = render_templ(structure.Ts[id], level, renderer);
+        if(!templ_v.empty()){
+            valid_id[i] = 1;
+            if(i < templ_structure.last_level_size){
+                last_valid_num ++;
+            }
+        }
     }
+    templ_structure.last_level_size = last_valid_num;
+
+    int total_valid = valid_id.back();
+    auto valid_id_map = valid_id;
+    cpu_exclusive_scan_serial(valid_id_map.data(), render_id_v.size());
+    total_valid += valid_id_map.back();
+
+    int valid_forest_num = 0;
+    for(int i=0; i<render_id_v.size(); i++){
+        if(!valid_id[i]) continue;
+        templ_v[valid_id_map[i]] = templ_v[i];
+        templ_Ts[valid_id_map[i]] = templ_Ts[i];
+        if(i < templ_forest.size()){
+            templ_forest[valid_id_map[i]] = templ_forest[i];
+            valid_forest_num ++;
+        }
+    }
+    templ_v.resize(total_valid);
+    templ_Ts.resize(total_valid);
+    templ_forest.resize(valid_forest_num);
+
+    for(auto& childs: templ_forest){
+        std::vector<int> valid_temp;
+        for(auto& child: childs){
+            if(valid_id[child]){
+                valid_temp.push_back(valid_id_map[child]);
+            }
+        }
+        childs = valid_temp;
+    }
+
     cout << "build templ sructure success" << endl;
     return templ_structure;
 }
