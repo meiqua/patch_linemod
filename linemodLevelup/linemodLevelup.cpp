@@ -2993,7 +2993,7 @@ bool Detector::is_similar(Mat &pose1, Mat &pose2, int pyr_level, int stride, Pos
     cv::Mat score0 = similarity_custom(templs[0], lm_level[0]);
     cv::Mat score1 = similarity_custom(templs[1], lm_level[1]);
     cv::Mat score = score0 + score1;
-    double thresh = 0.9 * (templs[0].features.size() + templs[1].features.size())*4;
+    double thresh = 0.85 * (templs[0].features.size() + templs[1].features.size())*4;
     double minVal;
     double maxVal;
     cv::Point min_loc, max_loc;

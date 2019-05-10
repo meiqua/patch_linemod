@@ -64,7 +64,7 @@ mode = 'render_train'
 
 dp = get_dataset_params(dataset)
 # 32 [8, 8, 8] 16
-detector = patch_linemod_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
+detector = patch_linemod_pybind.Detector(16, [8, 8], 16)  # min features; pyramid strides; num clusters
 
 obj_ids = []  # for each obj
 obj_ids_curr = range(1, dp['obj_count'] + 1)
