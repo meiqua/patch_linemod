@@ -59,12 +59,11 @@ dataset = 'hinterstoisser'
 # dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
-mode = 'render_train'
-# mode = 'test'
+# mode = 'render_train'
+mode = 'test'
 
 dp = get_dataset_params(dataset)
-# 32 [8, 8, 8] 16
-detector = patch_linemod_pybind.Detector(16, [8, 8], 16)  # min features; pyramid strides; num clusters
+detector = patch_linemod_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
 
 obj_ids = []  # for each obj
 obj_ids_curr = range(1, dp['obj_count'] + 1)
@@ -120,7 +119,6 @@ if mode == 'render_train':
         tilt_factor = 1
         tilt_range = (-math.pi * tilt_factor, math.pi * tilt_factor)
         tilt_step = math.pi/24
-        min_n_views = 200
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
@@ -131,7 +129,7 @@ if mode == 'render_train':
 
             print('\n building templs, obj: {} r: {}'.format(obj_id, radius))
             detector.add_templs('{:02d}_template_{}'.format(obj_id, radius), pose_renderer,
-                                radius, 4, azimuth_range[0], azimuth_range[1],
+                                radius, 3, azimuth_range[0], azimuth_range[1],
                                 elev_range[0], elev_range[1], tilt_range[0], tilt_range[1], tilt_step)
 
             detector.writeClasses(template_saved_to)

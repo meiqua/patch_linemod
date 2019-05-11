@@ -414,6 +414,6 @@ void build_templ_structure_test(){
 }
 
 int main(){
-    dataset_test();
+    build_templ_structure_test();
     return 0;
 }

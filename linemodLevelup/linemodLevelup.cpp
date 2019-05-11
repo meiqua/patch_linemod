@@ -2611,8 +2611,8 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
             int cur_cluster_idx = cluster2node.size();
             node2cluster[node_iter] = cur_cluster_idx;
             cluster2node.resize(cur_cluster_idx + 1);
-            std::cout << "level: " << level_iter << endl;
-            std::cout << "curr clusters: " << cluster2node.size() << endl << endl;
+//            std::cout << "level: " << level_iter << endl;
+//            std::cout << "curr clusters: " << cluster2node.size() << endl << endl;
 
             auto& current_cluster = cluster2node[cur_cluster_idx];
             current_cluster.push_back(node_iter);
@@ -2621,20 +2621,27 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
 
             std::queue<int> bfs_queue;
             bfs_queue.push(node_iter);
-            while (!bfs_queue.empty()) {
-                auto& node = structure.nodes[bfs_queue.front()];
-                for(int neibor: node.adjs){
-                    if(node2cluster[neibor] >= 0) continue; // allowing overlapping is better?
-                    if(is_similar(structure.Ts[current_behalf], structure.Ts[neibor],
-                                  level_iter, T_at_level[level_iter], renderer)){
-                        current_cluster.push_back(neibor);
-                        current_behalf = structure.select_behalf(current_cluster);
-                        node2cluster[neibor] = cur_cluster_idx;
-                        bfs_queue.push(neibor);
+            int jumps = level_iter;
+
+            if(jumps > 0){
+                while (!bfs_queue.empty()) {
+                    auto& node = structure.nodes[bfs_queue.front()];
+
+                    jumps --;
+                    for(int neibor: node.adjs){
+                        if(node2cluster[neibor] >= 0) continue; // allowing overlapping is better?
+                        {
+                            current_cluster.push_back(neibor);
+                            current_behalf = structure.select_behalf(current_cluster);
+                            node2cluster[neibor] = cur_cluster_idx;
+                            if(jumps > 0)
+                                bfs_queue.push(neibor);
+                        }
                     }
+                    bfs_queue.pop();
                 }
-                bfs_queue.pop();
             }
+
         }
 
         const bool view_cluster = false;
@@ -2823,7 +2830,14 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
     templ_Ts.resize(render_id_v.size());
     std::vector<int> valid_id(render_id_v.size(), 0);
     int last_valid_num = 0;
+
+    cout << "total templs: " << render_id_v.size() << endl;
     for(int i=0; i<render_id_v.size(); i++){
+
+        if(i%100==0){
+            cout << "rendering templs: " << i << endl;
+        }
+
         int id = unique2id(render_id_v[i]);
         int level = unique2level(render_id_v[i]);
 
@@ -2842,6 +2856,8 @@ Detector::TemplateStructure Detector::build_templ_structure(Pose_structure &stru
     auto valid_id_map = valid_id;
     cpu_exclusive_scan_serial(valid_id_map.data(), render_id_v.size());
     total_valid += valid_id_map.back();
+
+    cout << "total valid templs: " << total_valid << endl;
 
     int valid_forest_num = 0;
     for(int i=0; i<render_id_v.size(); i++){
