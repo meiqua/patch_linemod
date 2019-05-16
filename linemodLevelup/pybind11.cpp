@@ -14,6 +14,7 @@ PYBIND11_MODULE(patch_linemod_pybind, m) {
         .def_readwrite("inlier_rmse",&poseRefine::inlier_rmse)
         .def_readwrite("fitness",&poseRefine::fitness)
         .def("get_depth_edge", &poseRefine::get_depth_edge)
+        .def("set_depth", &poseRefine::set_depth, py::arg("depth"), py::arg("K") = cv::Mat())
         .def("process", &poseRefine::process);
 
     py::class_<PoseRenderer>(m, "PoseRenderer")

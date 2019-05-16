@@ -254,6 +254,6 @@ void renderer_test(){
 }
 
 int main(){
-    renderer_test();
+//    renderer_test();
     return 0;
 }

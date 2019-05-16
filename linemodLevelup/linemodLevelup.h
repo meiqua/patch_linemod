@@ -8,13 +8,24 @@
 class poseRefine{
 public:
     poseRefine(): fitness(-1), inlier_rmse(-1){}
-    void process(cv::Mat& sceneDepth, cv::Mat& modelDepth, cv::Mat& sceneK, cv::Mat& modelK,
-                 cv::Mat& modelR, cv::Mat& modelT, int detectX, int detectY, double threshold = 0.007);
 
-    cv::Mat get_depth_edge(cv::Mat& depth, int dilute_size = 5);
+    cv::Mat get_normals(cv::Mat depth, cv::Mat K = cv::Mat());
+    void set_depth(cv::Mat& depth, cv::Mat K = cv::Mat()){
+        assert(depth.type() == CV_16U);
+        __depth = depth;
+        cv::medianBlur(__depth, __depth, 5);
+        __normals = get_normals(__depth, K);
+    }
+
+    void process(cv::Mat& modelDepth, cv::Mat& sceneK, cv::Mat& modelK,
+                 cv::Mat& modelR, cv::Mat& modelT, int detectX, int detectY, double threshold = 0.010);
+
+    cv::Mat get_depth_edge(int dilute_size = 5);
 
     void cannyTraceEdge(int rowOffset, int colOffset, int row, int col, cv::Mat& canny_edge, cv::Mat& mag_nms);
 
+    cv::Mat __depth;
+    cv::Mat __normals;
     cv::Mat result_refined;
     double fitness, inlier_rmse;
 };

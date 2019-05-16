@@ -51,12 +51,12 @@ def nms(dets, thresh):
 
     return keep
 
-# dataset = 'hinterstoisser'
+dataset = 'hinterstoisser'
 # dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
-dataset = 'doumanoglou'
+# dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
 # mode = 'render_train'
@@ -100,7 +100,7 @@ print('\ndep anchors:\n {}, \ndep range: {}\n'.format(dep_anchors, dep_range))
 
 top_level_path = os.path.dirname(os.path.abspath(__file__))
 template_saved_to = join(dp['base_path'], 'linemod_render_up', '%s.yaml')
-matches_saved_to = join(dp['base_path'], 'linemod_render_up_matches_dump', '{:02d}_{:02d}_{:04d}.yaml')
+matches_saved_to = join(dp['base_path'], 'linemod_render_up_matches_dump8', '{:02d}_{:02d}_{:04d}.yaml')
 tempInfo_saved_to = join(dp['base_path'], 'linemod_render_up', '{:02d}_info_{}.yaml')
 result_base_path = join(top_level_path, 'public', 'sixd_results', 'patch-linemod_'+dataset)
 
@@ -118,7 +118,7 @@ if mode == 'render_train':
     for obj_id in obj_ids_curr:
         azimuth_range = dp['test_obj_azimuth_range']
         elev_range = dp['test_obj_elev_range']
-        min_n_views = 200
+        min_n_views = 360
 
         model_path = dp['model_mpath'].format(obj_id)
         # width height model_path
@@ -133,7 +133,7 @@ if mode == 'render_train':
                                                            azimuth_range, elev_range,
                                                            tilt_range=(-math.pi * tilt_factor,
                                                                        math.pi * tilt_factor),
-                                                           tilt_step=math.pi / 10, hinter_or_fibonacci=False)
+                                                           tilt_step=math.pi / 12, hinter_or_fibonacci=False)
             print('Sampled views: ' + str(len(views)))
             templateInfo = dict()
 
@@ -253,7 +253,8 @@ if mode == 'test':
                 depth = inout.load_depth(dp['test_depth_mpath'].format(scene_id, im_id))
                 depth *= dp['cam']['depth_scale']
                 depth = depth.astype(np.uint16)  # [mm]
-                depth = cv2.medianBlur(depth, 5)
+
+                pose_refiner.set_depth(depth)
                 im_size = (depth.shape[1], depth.shape[0])
 
                 match_ids = list()
@@ -262,7 +263,7 @@ if mode == 'test':
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
                 linemod_time = time.time()
-                dump_matches = True
+                dump_matches = False
                 if dump_matches:
                     # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
                     matches = detector.match([rgb, depth], 70, active_ratio,
@@ -272,7 +273,7 @@ if mode == 'test':
                     matches = detector.read_matches(matches_saved_to.format(scene_id, obj_id_in_scene, im_id))
 
                 linemod_time = time.time() - linemod_time
-                depth_edge = pose_refiner.get_depth_edge(depth, 5)
+                depth_edge = pose_refiner.get_depth_edge(5)
 
                 print('candidates size before refine & nms: {}\n'.format(len(matches)))
 
@@ -283,7 +284,7 @@ if mode == 'test':
                 local_refine_start = time.time()
                 icp_time = 0
 
-                top100_local_refine = 200  # avoid too many for simple obj,
+                top100_local_refine = 233  # avoid too many for simple obj,
                 # we observed more than 1000 when active ratio too low
 
                 if top100_local_refine > len(matches):
@@ -306,19 +307,11 @@ if mode == 'test':
 
                     [depth_ren] = pose_renderer.render_depth([mat_view.astype(np.float32)])
 
-                    # cv2.rectangle(raw_match_rgb, (match.x, match.y),
-                    #               (match.x + templ[0].width, match.y + templ[0].height), (0, 0, 255), 1)
-                    # cv2.imshow("rgb", raw_match_rgb)
-                    # cv2.imshow("dep", pose_renderer.view_dep(depth_ren))
-                    # cv2.waitKey(0)
-
                     icp_start = time.time()
                     # make sure data type is consistent
-                    pose_refiner.process(depth.astype(np.uint16), depth_ren.astype(np.uint16), K.astype(np.float32),
+                    pose_refiner.process(depth_ren.astype(np.uint16), K.astype(np.float32),
                                        K.astype(np.float32), R_match.astype(np.float32),
-                                       t_match.astype(np.float32)
-                                       , match.x, match.y, 0.01)
-
+                                       t_match.astype(np.float32), match.x, match.y, 0.01)
                     icp_time += (time.time() - icp_start)
 
                     if pose_refiner.fitness < active_ratio or pose_refiner.inlier_rmse > 0.01:
@@ -419,8 +412,8 @@ if mode == 'test':
                 if visual:
                     cv2.imshow('raw', raw_match_rgb)
                     cv2.imshow('depth_edge', depth_edge)
-                    cv2.imshow('rgb_top1', rgb)
                     cv2.imshow('rgb_render', render_rgb)
-                    cv2.waitKey(1)
+                    cv2.imshow('rgb_top1', rgb)
+                    cv2.waitKey(10)
 
 print('end line')

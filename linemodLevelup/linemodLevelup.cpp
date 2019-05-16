@@ -2545,7 +2545,8 @@ void Match::write(FileStorage &fs) const
 } // namespace linemodLevelup
 
 template<typename _Tp, int _rows, int _cols, int _options, int _maxRows, int _maxCols>
-void eigen2cv(const Eigen::Matrix<_Tp, _rows, _cols, _options, _maxRows, _maxCols>& src, cv::Mat& dst)
+inline void
+eigen2cv(const Eigen::Matrix<_Tp, _rows, _cols, _options, _maxRows, _maxCols>& src, cv::Mat& dst)
 {
     if (!(src.Flags & Eigen::RowMajorBit))
     {
@@ -2561,190 +2562,32 @@ void eigen2cv(const Eigen::Matrix<_Tp, _rows, _cols, _options, _maxRows, _maxCol
     }
 }
 
-void poseRefine::process(Mat &sceneDepth, Mat &modelDepth, Mat &sceneK, Mat &modelK,
-                         Mat &modelR, Mat &modelT, int detectX, int detectY, double threshold)
+cv::Mat poseRefine::get_normals(Mat _depth, Mat K_)
 {
-    assert(sceneDepth.type() == CV_16U);
-    assert(modelDepth.type() == CV_16U);
-    assert(sceneK.type() == CV_32F);
-    assert(modelK.type() == CV_32F);
-    assert(modelR.type() == CV_32F);
-    assert(modelT.type() == CV_32F);
-
-    fitness = -1;
-    inlier_rmse = -1;
-
-    const bool dump = false;
-    if(dump){  // for debug
-        FileStorage fs("/home/meiqua/6DPose/linemodLevelup/test/dump.yml", FileStorage::WRITE);
-        fs << "sceneDepth" << sceneDepth;
-        fs << "modelDepth" << sceneDepth;
-        fs << "sceneK" << sceneK;
-        fs << "modelK" << modelK;
-        fs << "modelR" << modelR;
-        fs << "modelT" << modelT;
-        fs << "detectX" << detectX;
-        fs << "detectY" << detectY;
-
-//        FileStorage fs("/home/meiqua/6DPose/linemodLevelup/test/dump.yml", FileStorage::READ);
-//        fs["sceneDepth"] >> sceneDepth;
-//        fs["modelDepth"] >> modelDepth;
-//        fs["sceneK"] >> sceneK;
-//        fs["modelK"] >> modelK;
-//        fs["modelR"] >> modelR;
-//        fs["modelT"] >> modelT;
-//        fs["detectX"] >> detectX;
-//        fs["detectY"] >> detectY;
+    if(K_.empty()){ // linemod K
+        K_ = (Mat_<float>(3,3) << 572.4114, 0.0, 325.2611, 0.0, 573.57043, 242.04899, 0.0, 0.0, 1.0);
+    }else{
+        assert(K_.type() == CV_32F);
     }
 
-    cv::Mat init_base_cv(4, 4, CV_32FC1, cv::Scalar(0));
-    modelR.copyTo(init_base_cv(cv::Rect(0, 0, 3, 3)));
-    modelT.copyTo(init_base_cv(cv::Rect(3, 0, 1, 3)));
-    init_base_cv.at<float>(2, 3) /= 1000.0f;
-    init_base_cv.at<float>(3, 3) = 1;
-    init_base_cv = init_base_cv.t();  // row to col major
-
-    Eigen::Matrix4f init_base = Eigen::Map<Eigen::Matrix4f>(reinterpret_cast<float*>(init_base_cv.data));
-
-    cv::Mat modelMask = modelDepth > 0;
-
-    for(int i=0; i<3; i++) cv::dilate(modelMask, modelMask, cv::Mat());
-
-    cv::Mat non0p;
-    findNonZero(modelMask, non0p);
-    cv::Rect bbox = boundingRect(non0p);
-
-    cv::Rect roi = cv::Rect(detectX, detectY, bbox.width, bbox.height);
-    if((detectX + bbox.width >= sceneDepth.cols) || (detectY + bbox.height >= sceneDepth.rows)) return;
-
-    open3d::geometry::Image scene_depth_open3d, model_depth_open3d;
-    model_depth_open3d.PrepareImage(modelDepth.cols, modelDepth.rows, 1, 2);
-
-    std::copy_n(modelDepth.data, model_depth_open3d.data_.size(),
-                model_depth_open3d.data_.begin());
-
-    open3d::camera::PinholeCameraIntrinsic K_scene_open3d(sceneDepth.cols, sceneDepth.rows,
-                                                  double(sceneK.at<float>(0, 0)), double(sceneK.at<float>(1, 1)),
-                                                  double(sceneK.at<float>(0, 2)), double(sceneK.at<float>(1, 2)));
-
-    open3d::camera::PinholeCameraIntrinsic K_model_open3d(modelDepth.cols, modelDepth.rows,
-                                                  double(modelK.at<float>(0, 0)), double(modelK.at<float>(1, 1)),
-                                                  double(modelK.at<float>(0, 2)), double(modelK.at<float>(1, 2)));
-
-    auto model_pcd = open3d::geometry::CreatePointCloudFromDepthImage(model_depth_open3d, K_model_open3d);
-
-    Eigen::Matrix4d init_guess = Eigen::Matrix4d::Identity(4, 4);
-
-    cv::Mat scene_depth_model_cover = cv::Mat::zeros(sceneDepth.rows, sceneDepth.cols, sceneDepth.type());
-    sceneDepth(roi).copyTo(scene_depth_model_cover(roi), modelMask(bbox));
-//    cv::medianBlur(scene_depth_model_cover, scene_depth_model_cover, 5);
-
-    open3d::geometry::Image scene_depth_for_center_estimation;
-    scene_depth_for_center_estimation.PrepareImage(scene_depth_model_cover.cols, scene_depth_model_cover.rows,
-                                                   1, 2);
-    std::copy_n(scene_depth_model_cover.data, scene_depth_for_center_estimation.data_.size(),
-                scene_depth_for_center_estimation.data_.begin());
-    auto scene_pcd_for_center = open3d::geometry::CreatePointCloudFromDepthImage(scene_depth_for_center_estimation, K_scene_open3d);
-
-    double voxel_size = 0.002;
-    auto model_pcd_down = open3d::geometry::VoxelDownSample(*model_pcd, voxel_size);
-    auto scene_pcd_down = open3d::geometry::VoxelDownSample(*scene_pcd_for_center, voxel_size);
-
-//    auto model_pcd_down = open3d::UniformDownSample(*model_pcd, 5);
-//    auto scene_pcd_down = open3d::UniformDownSample(*scene_pcd_for_center, 5);
-
-//    auto model_pcd_down = model_pcd;
-//    auto scene_pcd_down = scene_pcd_for_center;
-    Eigen::Vector3d center_scene = Eigen::Vector3d::Zero();
-    Eigen::Vector3d center_model = Eigen::Vector3d::Zero();
-
-    double anchor_dep = modelDepth.at<uint16_t>(modelDepth.rows/2, modelDepth.cols/2)/1000.0;
-    int center_scene_size = 0;
-    for(auto& p: scene_pcd_down->points_){
-        if(std::abs(p.z() - anchor_dep) < 0.4){ // not too far
-            center_scene += p;
-            center_scene_size++;
-        }
-    }
-    center_scene /= center_scene_size;
-
-    for(auto& p: model_pcd_down->points_){
-        center_model += p;
-    }
-    center_model /= model_pcd_down->points_.size();
-
-    init_guess.block(0, 3, 3, 1) = center_scene - center_model;
-
-    const bool debug_ = false;
-    if(debug_){
-        auto init_result = open3d::registration::EvaluateRegistration(*model_pcd_down, *scene_pcd_down, threshold, init_guess);
-        std::cout << "init_result.fitness_: " << init_result.fitness_ << std::endl;
-        std::cout << "init_result.inlier_rmse_ : " << init_result.inlier_rmse_ << std::endl;
-
-        model_pcd_down->PaintUniformColor({1, 0.706, 0});
-        scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
-        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
-    }
-
-    open3d::geometry::EstimateNormals(*model_pcd_down);
-    open3d::geometry::EstimateNormals(*scene_pcd_down);
-    auto final_result = open3d::registration::RegistrationICP(*model_pcd_down, *scene_pcd_down, threshold,
-                                                init_guess,
-                                                open3d::registration::TransformationEstimationPointToPlane());
-
-    if(debug_){
-        std::cout << "final_result.fitness_: " << final_result.fitness_ << std::endl;
-        std::cout << "final_result.inlier_rmse_ : " << final_result.inlier_rmse_ << std::endl;
-
-        model_pcd_down->Transform(final_result.transformation_);
-        model_pcd_down->PaintUniformColor({1, 0.706, 0});
-        scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
-        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
-    }
-
-    Eigen::Matrix4d result = final_result.transformation_*init_base.cast<double>();
-
-    fitness = final_result.fitness_;
-    inlier_rmse = final_result.inlier_rmse_;
-    eigen2cv(result, result_refined);
-}
-
-void poseRefine::cannyTraceEdge(int rowOffset, int colOffset, int row, int col, cv::Mat& canny_edge, cv::Mat& mag_nms){
-    int newRow = row + rowOffset;
-    int newCol = col + colOffset;
-
-    if(newRow>0 && newRow<mag_nms.rows && newCol>0 && newCol<mag_nms.cols){
-        float mag_v = mag_nms.at<float>(newRow, newCol);
-        if(canny_edge.at<uchar>(newRow, newCol)>0 || mag_v < 0.01f) return ;
-
-        canny_edge.at<uchar>(newRow, newCol) = 255;
-        cannyTraceEdge ( 1, 0, newRow, newCol, canny_edge, mag_nms);
-        cannyTraceEdge (-1, 0, newRow, newCol, canny_edge, mag_nms);
-        cannyTraceEdge ( 1, 1, newRow, newCol, canny_edge, mag_nms);
-        cannyTraceEdge (-1, -1, newRow, newCol, canny_edge, mag_nms);
-        cannyTraceEdge ( 0, -1, newRow, newCol, canny_edge, mag_nms);
-        cannyTraceEdge ( 0, 1, newRow, newCol, canny_edge, mag_nms);
-        cannyTraceEdge (-1, 1, newRow, newCol, canny_edge, mag_nms);
-        cannyTraceEdge ( 1, -1, newRow, newCol, canny_edge, mag_nms);
-    }
-};
-
-Mat poseRefine::get_depth_edge(Mat &depth_, int dilute_size)
-{
-    cv::Mat depth;
-    cv::medianBlur(depth_, depth, 5);
-    cv::Mat normals = cv::Mat(depth.size(), CV_32FC3, cv::Scalar(0));
+    cv::Mat normals = cv::Mat(_depth.size(), CV_32FC3, cv::Scalar(0));
     // method from linemod depth modality
     {
-        cv::Mat src = depth;
+        cv::Mat depth;
+        if(!_depth.isContinuous()) depth = _depth.clone();
+        else depth = _depth;
+
+        assert(depth.isContinuous());
+        assert(depth.type() == CV_16U);
+
         int distance_threshold = 2000;
         int difference_threshold = 50;
 
-        const unsigned short *lp_depth = src.ptr<ushort>();
+        const unsigned short *lp_depth = depth.ptr<ushort>();
         cv::Vec3f *lp_normals = normals.ptr<cv::Vec3f>();
 
-        const int l_W = src.cols;
-        const int l_H = src.rows;
+        const int l_W = depth.cols;
+        const int l_H = depth.rows;
 
         const int l_r = 5; // used to be 7
         const int l_offset0 = -l_r - l_r * l_W;
@@ -2785,10 +2628,8 @@ Mat poseRefine::get_depth_edge(Mat &depth_, int dilute_size)
                     long l_ddx = l_A[3] * l_b[0] - l_A[1] * l_b[1];
                     long l_ddy = -l_A[1] * l_b[0] + l_A[0] * l_b[1];
 
-                    /// @todo Magic number 1150 is focal length? This is something like
-                    /// f in SXGA mode, but in VGA is more like 530.
-                    float l_nx = static_cast<float>(1150 * l_ddx);
-                    float l_ny = static_cast<float>(1150 * l_ddy);
+                    float l_nx = static_cast<float>(K_.at<float>(0, 0) * l_ddx);
+                    float l_ny = static_cast<float>(K_.at<float>(1, 1) * l_ddy);
                     float l_nz = static_cast<float>(-l_det * l_d);
 
                     float l_sqrt = sqrtf(l_nx * l_nx + l_ny * l_ny + l_nz * l_nz);
@@ -2806,11 +2647,192 @@ Mat poseRefine::get_depth_edge(Mat &depth_, int dilute_size)
                 }
                 ++lp_line;
                 ++lp_norm;
+          }
+        }
+    }
+    return normals;
+}
+
+void poseRefine::process(Mat &modelDepth, Mat &sceneK, Mat &modelK,
+                         Mat &modelR, Mat &modelT, int detectX, int detectY, double threshold)
+{
+    const bool dump = false;
+    const bool record = true;
+    if(dump){  // for debug
+        if(record){
+            FileStorage fs("/home/meiqua/6DPose/linemodLevelup/test/dump.yml", FileStorage::WRITE);
+            fs << "__depth" << __depth;
+            fs << "__normals" << __normals;
+            fs << "modelDepth" << modelDepth;
+            fs << "sceneK" << sceneK;
+            fs << "modelK" << modelK;
+            fs << "modelR" << modelR;
+            fs << "modelT" << modelT;
+            fs << "detectX" << detectX;
+            fs << "detectY" << detectY;
+        }else{
+            FileStorage fs("/home/meiqua/6DPose/linemodLevelup/test/dump.yml", FileStorage::READ);
+            fs["__depth"] >> __depth;
+            fs["__normals"] >> __normals;
+            fs["modelDepth"] >> modelDepth;
+            fs["sceneK"] >> sceneK;
+            fs["modelK"] >> modelK;
+            fs["modelR"] >> modelR;
+            fs["modelT"] >> modelT;
+            fs["detectX"] >> detectX;
+            fs["detectY"] >> detectY;
+        }
+    }
+
+    assert(modelDepth.type() == CV_16U);
+    assert(sceneK.type() == CV_32F);
+    assert(modelK.type() == CV_32F);
+    assert(modelR.type() == CV_32F);
+    assert(modelT.type() == CV_32F);
+
+    cv::Mat init_base_cv(4, 4, CV_32FC1, cv::Scalar(0));
+    modelR.copyTo(init_base_cv(cv::Rect(0, 0, 3, 3)));
+    modelT.copyTo(init_base_cv(cv::Rect(3, 0, 1, 3)));
+    init_base_cv.at<float>(2, 3) /= 1000.0f;
+    init_base_cv.at<float>(3, 3) = 1;
+    init_base_cv = init_base_cv.t();  // row to col major
+
+    Eigen::Matrix4f init_base = Eigen::Map<Eigen::Matrix4f>(reinterpret_cast<float*>(init_base_cv.data));
+
+    cv::Mat modelMask = modelDepth > 0;
+
+    int dilute_half = 4;
+    cv::dilate(modelMask, modelMask, cv::Mat::ones(2*dilute_half+1, 2*dilute_half+1, CV_8U));
+
+    cv::Mat non0p;
+    findNonZero(modelMask, non0p);
+    cv::Rect bbox = boundingRect(non0p);
+
+    if((detectX + bbox.width >= __depth.cols) || (detectY + bbox.height >= __depth.rows)){
+        fitness = -1;
+        inlier_rmse = -1;
+        return;
+    }
+
+    auto model_pcd = std::make_unique<open3d::geometry::PointCloud>();
+    auto scene_pcd = std::make_unique<open3d::geometry::PointCloud>();
+
+    Eigen::Vector3d center_scene = Eigen::Vector3d::Zero();
+    Eigen::Vector3d center_model = Eigen::Vector3d::Zero();
+    double anchor_dep = modelDepth.at<uint16_t>(modelDepth.rows/2, modelDepth.cols/2)/1000.0;
+    int center_scene_size = 0;
+
+    for(int r=0; r<bbox.height; r++){
+        for(int c=0; c<bbox.width; c++){
+
+            int model_r = r + bbox.y;
+            int model_c = c + bbox.x;
+
+            int scene_r = r + detectY - dilute_half;
+            if(scene_r < 0) scene_r = 0;
+            int scene_c = c + detectX - dilute_half;
+            if(scene_c < 0) scene_c = 0;
+
+            if(modelMask.at<uchar>(model_r, model_c) > 0){
+                if(modelDepth.at<uint16_t>(model_r, model_c) > 0){
+                    double z_pcd = modelDepth.at<uint16_t>(model_r, model_c)/1000.0;
+                    double x_pcd = (model_c - modelK.at<float>(0, 2))/modelK.at<float>(0, 0)*z_pcd;
+                    double y_pcd = (model_r - modelK.at<float>(1, 2))/modelK.at<float>(1, 1)*z_pcd;
+                    model_pcd->points_.emplace_back(x_pcd, y_pcd, z_pcd);
+
+                    center_model += model_pcd->points_.back();
+                }
+                if(__depth.at<uint16_t>(scene_r, scene_c) > 0){
+                    double z_pcd = __depth.at<uint16_t>(scene_r, scene_c)/1000.0;
+                    double x_pcd = (scene_c - sceneK.at<float>(0, 2))/sceneK.at<float>(0, 0)*z_pcd;
+                    double y_pcd = (scene_r - sceneK.at<float>(1, 2))/sceneK.at<float>(1, 1)*z_pcd;
+                    scene_pcd->points_.emplace_back(x_pcd, y_pcd, z_pcd);
+
+                    if(std::abs(z_pcd - anchor_dep) < 0.4
+                            && modelDepth.at<uint16_t>(model_r, model_c) > 0){ // no dilute
+                        center_scene += scene_pcd->points_.back();
+                        center_scene_size ++;
+                    }
+                }
             }
         }
     }
+
+    Eigen::Matrix4d init_guess = Eigen::Matrix4d::Identity(4, 4);
+    center_model /= model_pcd->points_.size();
+    center_scene /= center_scene_size;
+    init_guess.block(0, 3, 3, 1) = center_scene - center_model;
+
+    double voxel_size = 0.0025;
+    auto model_pcd_down = open3d::geometry::VoxelDownSample(*model_pcd, voxel_size);
+    auto scene_pcd_down = open3d::geometry::VoxelDownSample(*scene_pcd, voxel_size);
+
+    const bool debug_ = false;
+    if(debug_){
+        auto init_result = open3d::registration::EvaluateRegistration(*model_pcd_down, *scene_pcd_down, threshold, init_guess);
+        std::cout << "init_result.fitness_: " << init_result.fitness_ << std::endl;
+        std::cout << "init_result.inlier_rmse_ : " << init_result.inlier_rmse_ << std::endl;
+
+        model_pcd_down->PaintUniformColor({1, 0.706, 0});
+        scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
+        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
+    }
+
+#define USE_OPEN3D_P2PL
+
+#ifdef USE_OPEN3D_P2PL
+    // we don't need source pcd normals, but open3d has assertion, so
+    model_pcd_down->normals_.resize(model_pcd_down->points_.size());
+    open3d::geometry::EstimateNormals(*scene_pcd_down);
+    auto final_result = open3d::registration::RegistrationICP(*model_pcd_down, *scene_pcd_down, threshold,
+                                                init_guess,
+                                                open3d::registration::TransformationEstimationPointToPlane());
+#else
+    auto final_result = open3d::registration::RegistrationICP(*model_pcd_down, *scene_pcd_down, threshold,
+                                                init_guess,
+                                                open3d::registration::TransformationEstimationPointToPoint());
+#endif
+    if(debug_){
+        std::cout << "final_result.fitness_: " << final_result.fitness_ << std::endl;
+        std::cout << "final_result.inlier_rmse_ : " << final_result.inlier_rmse_ << std::endl;
+
+        model_pcd_down->Transform(final_result.transformation_);
+        model_pcd_down->PaintUniformColor({1, 0.706, 0});
+        scene_pcd_down->PaintUniformColor({0, 0.651, 0.929});
+        open3d::visualization::DrawGeometries({model_pcd_down, scene_pcd_down});
+    }
+
+    Eigen::Matrix4d result = final_result.transformation_*init_base.cast<double>();
+
+    fitness = final_result.fitness_;
+    inlier_rmse = final_result.inlier_rmse_;
+    eigen2cv(result, result_refined);
+}
+
+void poseRefine::cannyTraceEdge(int rowOffset, int colOffset, int row, int col, cv::Mat& canny_edge, cv::Mat& mag_nms){
+    int newRow = row + rowOffset;
+    int newCol = col + colOffset;
+
+    if(newRow>0 && newRow<mag_nms.rows && newCol>0 && newCol<mag_nms.cols){
+        float mag_v = mag_nms.at<float>(newRow, newCol);
+        if(canny_edge.at<uchar>(newRow, newCol)>0 || mag_v < 0.01f) return ;
+
+        canny_edge.at<uchar>(newRow, newCol) = 255;
+        cannyTraceEdge ( 1, 0, newRow, newCol, canny_edge, mag_nms);
+        cannyTraceEdge (-1, 0, newRow, newCol, canny_edge, mag_nms);
+        cannyTraceEdge ( 1, 1, newRow, newCol, canny_edge, mag_nms);
+        cannyTraceEdge (-1, -1, newRow, newCol, canny_edge, mag_nms);
+        cannyTraceEdge ( 0, -1, newRow, newCol, canny_edge, mag_nms);
+        cannyTraceEdge ( 0, 1, newRow, newCol, canny_edge, mag_nms);
+        cannyTraceEdge (-1, 1, newRow, newCol, canny_edge, mag_nms);
+        cannyTraceEdge ( 1, -1, newRow, newCol, canny_edge, mag_nms);
+    }
+};
+
+Mat poseRefine::get_depth_edge(int dilute_size)
+{
     cv::Mat N_xyz[3];
-    cv::split(normals, N_xyz);
+    cv::split(__normals, N_xyz);
 
     // refer to RGB-D Edge Detection and Edge-based Registration
     // PCL organized edge detection
@@ -2903,11 +2925,11 @@ Mat poseRefine::get_depth_edge(Mat &depth_, int dilute_size)
     cv::Mat high_curvature_edge = canny_edge;
 
     // don't distinct occluding and occluded
-    cv::Mat occ_edge = cv::Mat(depth.size(), CV_8UC1, cv::Scalar(0));
-    for(int r = 1; r<depth.rows-1; r++){
-        for(int c = 1; c<depth.cols-1; c++){
+    cv::Mat occ_edge = cv::Mat(__depth.size(), CV_8UC1, cv::Scalar(0));
+    for(int r = 1; r<__depth.rows-1; r++){
+        for(int c = 1; c<__depth.cols-1; c++){
 
-            int dep_Dxy = depth.at<uint16_t>(r, c);
+            int dep_Dxy = __depth.at<uint16_t>(r, c);
             if(dep_Dxy == 0) continue;
 
             // 8 neibor
@@ -2917,7 +2939,7 @@ Mat poseRefine::get_depth_edge(Mat &depth_, int dilute_size)
                 bool break_flag = false;
                 for(int offset_c=-1; offset_c<=1; offset_c++){
                     if(offset_c == 0 && offset_r == 0) continue;
-                    int dep_nn = depth.at<uint16_t>(r+offset_r, c+offset_c);
+                    int dep_nn = __depth.at<uint16_t>(r+offset_r, c+offset_c);
                     if(dep_nn == 0){
                         break_flag = true;
                         invalid = true;
