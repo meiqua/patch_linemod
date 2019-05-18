@@ -100,7 +100,7 @@ print('\ndep anchors:\n {}, \ndep range: {}\n'.format(dep_anchors, dep_range))
 
 top_level_path = os.path.dirname(os.path.abspath(__file__))
 template_saved_to = join(dp['base_path'], 'linemod_render_up', '%s.yaml')
-matches_saved_to = join(dp['base_path'], 'linemod_render_up_matches_dump8', '{:02d}_{:02d}_{:04d}.yaml')
+matches_saved_to = join(dp['base_path'], 'linemod_render_up_matches_dump', '{:02d}_{:02d}_{:04d}.yaml')
 tempInfo_saved_to = join(dp['base_path'], 'linemod_render_up', '{:02d}_info_{}.yaml')
 result_base_path = join(top_level_path, 'public', 'sixd_results', 'patch-linemod_'+dataset)
 
@@ -263,7 +263,7 @@ if mode == 'test':
                     match_ids.append('{:02d}_template_{}'.format(obj_id_in_scene, radius))
 
                 linemod_time = time.time()
-                dump_matches = False
+                dump_matches = True
                 if dump_matches:
                     # srcs, score for one part, active ratio, may be too low for simple objects so too many candidates?
                     matches = detector.match([rgb, depth], 70, active_ratio,

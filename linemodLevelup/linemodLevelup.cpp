@@ -2051,31 +2051,32 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
             }
 
             // Find initial matches, nms
-            int nms_kernel_size = 5;
-            for (int r = nms_kernel_size/2; r < similarities[0][0].rows-nms_kernel_size/2; ++r)
+            int nms_kernel_half = 2;
+            for (int r = nms_kernel_half; r < similarities[0][0].rows-nms_kernel_half; ++r)
             {
                 float* nms_row = nms_candidates.ptr<float>(r);
-                for (int c = nms_kernel_size/2; c < similarities[0][0].cols-nms_kernel_size/2; ++c)
+                for (int c = nms_kernel_half; c < similarities[0][0].cols-nms_kernel_half; ++c)
                 {
                     float score = nms_row[c];
                     if(score<=0) continue;
 
                     bool is_max = true;
-                    for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
-                        for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
+                    for(int r_offset = -nms_kernel_half; r_offset <= nms_kernel_half; r_offset++){
+                        for(int c_offset = -nms_kernel_half; c_offset <= nms_kernel_half; c_offset++){
                             if(r_offset == 0 && c_offset == 0) continue;
 
                             if(score < nms_candidates.at<float>(r+r_offset, c+c_offset)){
                                 score = 0;
                                 is_max = false;
-                                break;
+                                goto break2;
                             }
                         }
                     }
+                    break2:
 
                     if(is_max){
-                        for(int r_offset = -nms_kernel_size/2; r_offset <= nms_kernel_size/2; r_offset++){
-                            for(int c_offset = -nms_kernel_size/2; c_offset <= nms_kernel_size/2; c_offset++){
+                        for(int r_offset = -nms_kernel_half; r_offset <= nms_kernel_half; r_offset++){
+                            for(int c_offset = -nms_kernel_half; c_offset <= nms_kernel_half; c_offset++){
                                 if(r_offset == 0 && c_offset == 0) continue;
                                 nms_candidates.at<float>(r+r_offset, c+c_offset) = 0;
                             }
@@ -2137,9 +2138,6 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
                     similarityLocal(cluster_counts2[i], lms[i], templ, similarities2[i], size, T, Point(x, y));
                 }
 
-                float best_score = 0;
-                int best_r = -1, best_c = -1;
-
                 std::vector<cv::Mat> score_2mod(modalities.size());
                 for (int i = 0; i < (int)modalities.size(); ++i){
                     Mat active_count2 = Mat::zeros(local_size, local_size, CV_8UC1);
@@ -2187,6 +2185,8 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
                     min_score = cv::min(min_score, score);
                 }
 
+                float best_score = 0;
+                int best_r = -1, best_c = -1;
                 for (int r = 0; r < local_size; ++r)
                 {
                     float* score_2mod_row = min_score.ptr<float>(r);
