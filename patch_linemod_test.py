@@ -51,16 +51,16 @@ def nms(dets, thresh):
 
     return keep
 
-dataset = 'hinterstoisser'
-# dataset = 'tless'
+# dataset = 'hinterstoisser'
+dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
 # dataset = 'doumanoglou'
 # dataset = 'toyotalight'
 
-# mode = 'render_train'
-mode = 'test'
+mode = 'render_train'
+# mode = 'test'
 
 dp = get_dataset_params(dataset)
 detector = patch_linemod_pybind.Detector(16, [4, 8], 16)  # min features; pyramid strides; num clusters
@@ -154,10 +154,6 @@ if mode == 'render_train':
                     cv2.imshow('mask', mask)
                     cv2.waitKey(1)
 
-                if dp['cam']['depth_scale'] != 1:
-                    depth *= dp['cam']['depth_scale']
-                    depth = depth.astype(np.uint16)
-
                 aTemplateInfo = dict()
                 aTemplateInfo['cam_R_w2c'] = view['R']
                 aTemplateInfo['cam_t_w2c'] = view['t']
@@ -199,6 +195,66 @@ if mode == 'test':
 
         if dataset == 'hinterstoisser' and scene_id == 2:
             obj_id_in_scene_array = [1, 2, 5, 6, 8, 9, 10, 11, 12]  # for occ dataset
+
+        if dataset == 'tless' and scene_id == 1:
+            obj_id_in_scene_array = [2, 25, 29, 30]
+
+        if dataset == 'tless' and scene_id == 2:
+            obj_id_in_scene_array = [5, 6, 7]
+
+        if dataset == 'tless' and scene_id == 3:
+            obj_id_in_scene_array = [5, 8, 11, 12, 18]
+
+        if dataset == 'tless' and scene_id == 4:
+            obj_id_in_scene_array = [5, 8, 26, 28]
+
+        if dataset == 'tless' and scene_id == 5:
+            obj_id_in_scene_array = [1, 4, 9, 10, 27]
+
+        if dataset == 'tless' and scene_id == 6:
+            obj_id_in_scene_array = [6, 7, 11, 12]
+
+        if dataset == 'tless' and scene_id == 7:
+            obj_id_in_scene_array = [1, 3, 13, 14, 15, 16, 17, 18]
+
+        if dataset == 'tless' and scene_id == 8:
+            obj_id_in_scene_array = [19, 20, 21, 22, 23, 24]
+
+        if dataset == 'tless' and scene_id == 9:
+            obj_id_in_scene_array = [1, 2, 3, 4]
+
+        if dataset == 'tless' and scene_id == 10:
+            obj_id_in_scene_array = [19, 20, 21, 22, 23, 24]
+
+        if dataset == 'tless' and scene_id == 11:
+            obj_id_in_scene_array = [5, 8, 9, 10]
+
+        if dataset == 'tless' and scene_id == 12:
+            obj_id_in_scene_array = [2, 3, 7, 9]
+
+        if dataset == 'tless' and scene_id == 13:
+            obj_id_in_scene_array = [19, 20, 21, 23, 28]
+
+        if dataset == 'tless' and scene_id == 14:
+            obj_id_in_scene_array = [19, 20, 22, 23, 24]
+
+        if dataset == 'tless' and scene_id == 15:
+            obj_id_in_scene_array = [25, 26, 27, 28, 29, 30]
+
+        if dataset == 'tless' and scene_id == 16:
+            obj_id_in_scene_array = [10, 11, 12, 13, 14, 15, 16, 17]
+
+        if dataset == 'tless' and scene_id == 17:
+            obj_id_in_scene_array = [1, 4, 7, 9]
+
+        if dataset == 'tless' and scene_id == 18:
+            obj_id_in_scene_array = [1, 4, 7, 9]
+
+        if dataset == 'tless' and scene_id == 19:
+            obj_id_in_scene_array = [13, 14, 15, 16, 17, 18, 24, 30]
+
+        if dataset == 'tless' and scene_id == 20:
+            obj_id_in_scene_array = [1, 2, 3, 4]
 
         for obj_id_in_scene in obj_id_in_scene_array:
             # Load scene info and gt poses
@@ -251,7 +307,9 @@ if mode == 'test':
                 # Load the images
                 rgb = inout.load_im(dp['test_rgb_mpath'].format(scene_id, im_id))
                 depth = inout.load_depth(dp['test_depth_mpath'].format(scene_id, im_id))
-                depth *= dp['cam']['depth_scale']
+
+                if dp['cam']['depth_scale'] != 1.0:
+                    depth *= dp['cam']['depth_scale']
                 depth = depth.astype(np.uint16)  # [mm]
 
                 pose_refiner.set_depth(depth)
