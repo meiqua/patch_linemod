@@ -1666,7 +1666,7 @@ static std::vector<cv::Mat> crop_to_same_depth_parts(const cv::Mat &depth, const
     int min_anchor=*std::min_element(dep_anchors.begin(), dep_anchors.end());
     int max_anchor=*std::max_element(dep_anchors.begin(), dep_anchors.end());
     auto find_closest_dep_idx = [&dep_anchors, min_anchor, max_anchor](int ave_dep){
-        if(ave_dep<min_anchor || ave_dep>max_anchor){
+        if(ave_dep<min_anchor-200 || ave_dep>max_anchor+200){
             return -1;
         }
 
