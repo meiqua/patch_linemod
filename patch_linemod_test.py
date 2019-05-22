@@ -260,12 +260,9 @@ if mode == 'test':
             print('\nreading detector template & info, obj: {}'.format(obj_id_in_scene))
             misc.ensure_dir(join(result_base_path, '{:02d}'.format(scene_id)))
             scene_info = inout.load_info(dp['scene_info_mpath'].format(scene_id))
-            scene_gt = inout.load_gt(dp['scene_gt_mpath'].format(scene_id))
 
             model_path = dp['model_mpath'].format(obj_id_in_scene)
-            # width height model_path
             pose_renderer = patch_linemod_pybind.PoseRenderer(model_path)
-            pose_renderer.set_K_width_height(dp['cam']['K'].astype(np.float32), im_size[0], im_size[1])
 
             template_read_classes = []
             detector.clear_classes()
@@ -301,7 +298,9 @@ if mode == 'test':
                 print('#' * 20)
                 print('scene: {}, im: {}'.format(scene_id, im_id))
 
-                K = scene_info[im_id]['cam_K']
+                K = scene_info[im_id]['cam_K'].astype(np.float32)
+                pose_renderer.set_K_width_height(K.astype(np.float32), im_size[0], im_size[1])
+
                 # Load the images
                 rgb = inout.load_im(dp['test_rgb_mpath'].format(scene_id, im_id))
                 depth = inout.load_depth(dp['test_depth_mpath'].format(scene_id, im_id))
@@ -310,7 +309,7 @@ if mode == 'test':
                     depth *= dp['cam']['depth_scale']
                 depth = depth.astype(np.uint16)  # [mm]
 
-                pose_refiner.set_depth(depth)
+                pose_refiner.set_depth(depth, K.astype(np.float32))
                 im_size = (depth.shape[1], depth.shape[0])
 
                 match_ids = list()
@@ -388,7 +387,8 @@ if mode == 'test':
 
                     hit_rate = cv2.countNonZero(edge_hit) / cv2.countNonZero(model_dep_edge)
                     if hit_rate < active_ratio:
-                        continue
+                        # continue
+                        score *= hit_rate  # not to reject directly, we find candidates are all rejected sometimes
 
                     Rs.append(refinedR)
                     Ts.append(refinedT)
