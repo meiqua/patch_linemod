@@ -51,8 +51,8 @@ def nms(dets, thresh):
 
     return keep
 
-# dataset = 'hinterstoisser'
-dataset = 'tless'
+dataset = 'hinterstoisser'
+# dataset = 'tless'
 # dataset = 'tudlight'
 # dataset = 'rutgers'
 # dataset = 'tejani'
