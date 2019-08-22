@@ -24,7 +24,7 @@ list(APPEND patch_linemod_lib ${OpenCV_LIBS})
 
 
 # open3d
-find_package(Open3D REQUIRED PATHS "~/Open3D/build/CMakeFiles")
+find_package(Open3D REQUIRED)
 if (Open3D_FOUND)
     message(STATUS "Found Open3D ${Open3D_VERSION}")
 
